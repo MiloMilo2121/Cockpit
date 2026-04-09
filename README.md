@@ -12,6 +12,7 @@ Runtime completamente code-first: `cockpit-core` (`FastAPI + Celery`) con pipeli
 - `Qdrant` per retrieval vettoriale
 - `Evolution API v2` per integrazione WhatsApp
 - `Ollama` per fallback locale
+- `file-watcher` per ingest automatico file locali -> RAG + task extraction
 - `Caddy` per reverse proxy + TLS automatico
 - `privacy-node` (FastAPI + Presidio) per redazione PII locale
 
@@ -42,6 +43,7 @@ cp .env.example .env
 - `OPENROUTER_API_KEY` (obbligatoria per Step 3)
 - `OPENROUTER_FREE_MODELS` (lista modelli gratuiti OpenRouter, separati da virgola)
 - `SMART_BUFFER_SECONDS` (default 12)
+- `FILE_WATCHER_ALLOWED_EXTENSIONS` (estensioni indicizzate in Step 6)
 - `RAG_COLLECTION_NAME` (default `life_cockpit_memory`)
 - `RAG_VECTOR_SIZE` (default `384`)
 - `QDRANT_API_KEY`
@@ -149,6 +151,23 @@ curl https://<DOMAIN_API>/jobs/<JOB_ID>
   - `make backup` (`scripts/backup.sh`)
   - `make healthcheck` (`scripts/healthcheck.sh`)
   - runbook operativo in `docs/operations.md`
+
+## Step 6 completato (watchdog file ingestion + auto-categorizzazione)
+
+- Nuovo servizio `file-watcher` in `docker-compose.yml`.
+- Monitoraggio cartella locale `data/inbox` (ricorsivo) con dedup su fingerprint persistita.
+- Classificazione file con modelli OpenRouter `:free` (fallback euristico locale).
+- Ingest automatico su RAG (`POST /rag/documents/ingest`) con metadati:
+  - `path`, `fingerprint`, `category`, `priority`, `tasks`.
+- Opzionale push su `POST /webhooks/inbox` dei task estratti dal file.
+- Copia file processati in `data/processed`.
+
+Esempio rapido:
+
+```bash
+echo "- TODO: pagare F24 entro venerdi" > data/inbox/finanza_oggi.md
+make logs-watcher
+```
 
 Esempio ingest:
 

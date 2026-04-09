@@ -47,3 +47,12 @@
   - script backup PostgreSQL + Qdrant
   - script healthcheck servizi core
   - runbook operativo in `docs/operations.md`
+
+## Step 6 (completato)
+
+- Servizio `file-watcher` aggiunto in `docker-compose.yml`.
+- Monitoraggio ricorsivo cartelle locali con `watchdog`.
+- Classificazione file con OpenRouter free (`OPENROUTER_FREE_MODELS`) e fallback euristico.
+- Ingest automatico su RAG (`POST /rag/documents/ingest`) con metadati file e categoria.
+- Estrazione task dal contenuto e invio opzionale a `POST /webhooks/inbox`.
+- Persistenza stato dedup nel volume `file_watcher_state`.

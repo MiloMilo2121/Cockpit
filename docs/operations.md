@@ -5,6 +5,7 @@
 - `make ps`
 - `make healthcheck`
 - `curl -fsS https://<DOMAIN_API>/ops/metrics`
+- `make logs-watcher` (controllo ingest file automatico)
 
 ## 2) Backups
 
@@ -43,11 +44,27 @@ gunzip -c backups/postgres_<db>_<timestamp>.sql.gz | docker compose exec -T post
 ## 4) Incident triage
 
 - API errors: `docker compose logs -f cockpit-api cockpit-worker`
+- File ingest errors: `docker compose logs -f file-watcher`
 - Messaging errors: `docker compose logs -f evolution-api`
 - Dead letter events: `GET /ops/dead-letter?limit=100`
 - Circuit breaker status: `GET /ops/metrics`
 
-## 5) Security baseline
+## 5) File watcher flow (Step 6)
+
+1. Copia o salva file testuali in `data/inbox/`.
+2. Verifica log:
+
+```bash
+make logs-watcher
+```
+
+3. Controlla che `cockpit-api` abbia job RAG in coda:
+
+```bash
+docker compose logs -f cockpit-api cockpit-worker
+```
+
+## 6) Security baseline
 
 - Keep `.env` off git.
 - Rotate API keys monthly.

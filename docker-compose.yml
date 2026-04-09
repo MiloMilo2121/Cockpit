@@ -130,6 +130,39 @@ services:
     networks:
       - backend
 
+  file-watcher:
+    build:
+      context: ./services/file-watcher
+    container_name: lc-file-watcher
+    restart: unless-stopped
+    depends_on:
+      cockpit-api:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ}
+      FILE_WATCHER_COCKPIT_API_URL: http://cockpit-api:8000
+      FILE_WATCHER_WATCH_DIRS: /watch/inbox
+      FILE_WATCHER_ARCHIVE_DIR: /watch/processed
+      FILE_WATCHER_STATE_PATH: /state/file_state.json
+      FILE_WATCHER_SOURCE: ${FILE_WATCHER_SOURCE}
+      FILE_WATCHER_USER_ID: ${FILE_WATCHER_USER_ID}
+      FILE_WATCHER_CHUNKING_STRATEGY: ${FILE_WATCHER_CHUNKING_STRATEGY}
+      FILE_WATCHER_SETTLE_SECONDS: ${FILE_WATCHER_SETTLE_SECONDS}
+      FILE_WATCHER_POLL_INTERVAL_SECONDS: ${FILE_WATCHER_POLL_INTERVAL_SECONDS}
+      FILE_WATCHER_MAX_FILE_BYTES: ${FILE_WATCHER_MAX_FILE_BYTES}
+      FILE_WATCHER_MAX_CONTENT_CHARS: ${FILE_WATCHER_MAX_CONTENT_CHARS}
+      FILE_WATCHER_ALLOWED_EXTENSIONS: ${FILE_WATCHER_ALLOWED_EXTENSIONS}
+      FILE_WATCHER_ENABLE_TASK_WEBHOOK: ${FILE_WATCHER_ENABLE_TASK_WEBHOOK}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_FREE_MODELS: ${OPENROUTER_FREE_MODELS}
+      OPENROUTER_TIMEOUT_SECONDS: ${OPENROUTER_TIMEOUT_SECONDS}
+    volumes:
+      - ./data/inbox:/watch/inbox
+      - ./data/processed:/watch/processed
+      - file_watcher_state:/state
+    networks:
+      - backend
+
   evolution-api:
     image: atendai/evolution-api:v2.1.1
     container_name: lc-evolution-api
@@ -242,5 +275,6 @@ volumes:
   qdrant_data:
   evolution_instances:
   ollama_data:
+  file_watcher_state:
   caddy_data:
   caddy_config:

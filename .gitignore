@@ -13,6 +13,10 @@ __pycache__/
 # Runtime data
 /tmp/
 /backups/
+/data/inbox/*
+/data/processed/*
+!/data/inbox/.gitkeep
+!/data/processed/.gitkeep
 
 # Optional local overrides
 compose.override.yml

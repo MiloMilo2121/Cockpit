@@ -9,6 +9,7 @@
 - Memoria semantica: `Qdrant`
 - Canale WhatsApp: `Evolution API`
 - Fallback LLM locale: `Ollama`
+- Ingest file locale: `file-watcher` (watchdog + classificazione + push RAG)
 - Privacy layer: `privacy-node` (redazione/restore PII)
 
 Tutti i servizi sono su rete Docker interna `backend`; verso Internet è esposto solo `caddy`.
@@ -84,3 +85,15 @@ Regole pratiche:
 - Bootstrap: `cp .env.example .env && docker compose up -d --build`
 - Audit rapido: `docker compose ps`
 - Diagnosi: `docker compose logs -f <service>`
+
+## 9) File ingestion continuo (Step 6)
+
+- Il servizio `file-watcher` osserva `data/inbox` e indicizza file testuali in RAG.
+- Dedup: fingerprint `sha1` persistita in `/state/file_state.json`.
+- Arricchimento:
+  - categorizzazione (`finance|health|legal|work|personal|operations|learning|uncategorized`)
+  - priorità (`low|medium|high`)
+  - estrazione task azionabili
+- Sink:
+  - ingest asincrono su `POST /rag/documents/ingest`
+  - opzionale evento operativo su `POST /webhooks/inbox`
