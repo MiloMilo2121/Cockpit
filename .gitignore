@@ -1,0 +1,17 @@
+# Secrets
+.env
+*.pem
+*.key
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Runtime data
+/tmp/
+
+# Optional local overrides
+compose.override.yml

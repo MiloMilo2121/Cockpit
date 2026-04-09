@@ -1,0 +1,239 @@
+name: life-cockpit
+
+x-n8n-common-env: &n8n-common-env
+  DB_TYPE: postgresdb
+  DB_POSTGRESDB_HOST: postgres
+  DB_POSTGRESDB_PORT: 5432
+  DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+  DB_POSTGRESDB_USER: ${POSTGRES_USER}
+  DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+  EXECUTIONS_MODE: queue
+  QUEUE_BULL_REDIS_HOST: redis
+  QUEUE_BULL_REDIS_PORT: 6379
+  QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD}
+  N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+  N8N_DIAGNOSTICS_ENABLED: false
+  N8N_LOG_LEVEL: info
+  N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: true
+  GENERIC_TIMEZONE: ${TZ}
+  N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE}
+  N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+  N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    container_name: lc-redis
+    restart: unless-stopped
+    command: >
+      redis-server --appendonly yes --save 60 1 --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - backend
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: lc-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - backend
+
+  n8n-web:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: lc-n8n-web
+    restart: unless-stopped
+    command: n8n start
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *n8n-common-env
+      N8N_HOST: ${DOMAIN_N8N}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${DOMAIN_N8N}/
+      N8N_SECURE_COOKIE: true
+      N8N_RUNNERS_ENABLED: true
+      OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: true
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_SAVE_ON_PROGRESS: false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - backend
+
+  n8n-worker:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: lc-n8n-worker
+    restart: unless-stopped
+    command: n8n worker --concurrency=${N8N_WORKER_CONCURRENCY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *n8n-common-env
+      N8N_RUNNERS_ENABLED: true
+      N8N_DISABLE_UI: true
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - backend
+
+  evolution-api:
+    image: atendai/evolution-api:v2.1.1
+    container_name: lc-evolution-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SERVER_TYPE: http
+      SERVER_PORT: 8080
+      SERVER_URL: https://${DOMAIN_EVOLUTION}
+      AUTHENTICATION_TYPE: apikey
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      LOG_LEVEL: ERROR
+
+      DATABASE_ENABLED: true
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=evolution
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_exchange
+      DATABASE_SAVE_DATA_INSTANCE: true
+      DATABASE_SAVE_DATA_NEW_MESSAGE: true
+      DATABASE_SAVE_MESSAGE_UPDATE: true
+      DATABASE_SAVE_DATA_CONTACTS: true
+      DATABASE_SAVE_DATA_CHATS: true
+      DATABASE_SAVE_DATA_LABELS: true
+      DATABASE_SAVE_DATA_HISTORIC: true
+
+      CACHE_REDIS_ENABLED: true
+      CACHE_REDIS_URI: redis://:${REDIS_PASSWORD}@redis:6379/2
+      CACHE_REDIS_PREFIX_KEY: evolution
+
+      WEBSOCKET_ENABLED: true
+      CONFIG_SESSION_PHONE_CLIENT: LifeCockpit
+      CONFIG_SESSION_PHONE_NAME: Chrome
+    volumes:
+      - evolution_instances:/evolution/instances
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - backend
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: lc-ollama
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 10m
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - backend
+
+  privacy-node:
+    build:
+      context: ./services/privacy-node
+    container_name: lc-privacy-node
+    restart: unless-stopped
+    environment:
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS}
+      PRIVACY_SALT: ${PRIVACY_SALT}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8100/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - backend
+
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: lc-caddy
+    restart: unless-stopped
+    depends_on:
+      n8n-web:
+        condition: service_healthy
+      evolution-api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+      DOMAIN_N8N: ${DOMAIN_N8N}
+      DOMAIN_EVOLUTION: ${DOMAIN_EVOLUTION}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - edge
+      - backend
+
+networks:
+  edge:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  n8n_data:
+  evolution_instances:
+  ollama_data:
+  caddy_data:
+  caddy_config:
