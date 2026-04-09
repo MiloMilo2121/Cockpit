@@ -1,6 +1,6 @@
 COMPOSE = docker compose
 
-.PHONY: up down restart ps logs logs-core validate
+.PHONY: up down restart ps logs logs-core backup healthcheck validate
 
 up:
 	$(COMPOSE) up -d --build
@@ -20,6 +20,12 @@ logs:
 
 logs-core:
 	$(COMPOSE) logs -f --tail=200 cockpit-api cockpit-worker
+
+backup:
+	./scripts/backup.sh
+
+healthcheck:
+	./scripts/healthcheck.sh
 
 validate:
 	$(COMPOSE) config > /dev/null

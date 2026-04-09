@@ -10,3 +10,4 @@ fi
 
 echo "Review and update secrets in $ROOT_DIR/.env before starting containers."
 echo "Then run: docker compose up -d --build"
+echo "After startup run: make healthcheck"

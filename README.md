@@ -1,11 +1,10 @@
 # Personal Life Cockpit (Predictive)
 
 Base infrastrutturale self-hosted per un Life Cockpit predittivo.  
-Attualmente include sia stack `n8n` legacy sia il nuovo runtime code-first `cockpit-core` (`FastAPI + Celery`) per migrazione progressiva.
+Runtime completamente code-first: `cockpit-core` (`FastAPI + Celery`) con pipeline multi-agent, RAG e resilienza operativa.
 
 ## Stack
 
-- `n8n` (web + worker) in queue mode
 - `cockpit-core` (`FastAPI`) per webhook/API applicative
 - `cockpit-worker` (`Celery`) per orchestrazione asincrona e retry/backoff
 - `PostgreSQL 16` per stato/credenziali/log
@@ -22,7 +21,6 @@ Attualmente include sia stack `n8n` legacy sia il nuovo runtime code-first `cock
 - `2 vCPU`, `4 GB RAM`, `64 GB NVMe`
 - Docker Engine + Docker Compose plugin
 - DNS già configurato per:
-  - `DOMAIN_N8N`
   - `DOMAIN_API`
   - `DOMAIN_EVOLUTION`
 
@@ -37,13 +35,10 @@ cp .env.example .env
 2. Aggiorna almeno queste variabili in `.env`:
 
 - `LETSENCRYPT_EMAIL`
-- `DOMAIN_N8N`
 - `DOMAIN_API`
 - `DOMAIN_EVOLUTION`
 - `POSTGRES_PASSWORD`
 - `REDIS_PASSWORD`
-- `N8N_ENCRYPTION_KEY`
-- `N8N_BASIC_AUTH_PASSWORD`
 - `OPENROUTER_API_KEY` (obbligatoria per Step 3)
 - `OPENROUTER_FREE_MODELS` (lista modelli gratuiti OpenRouter, separati da virgola)
 - `SMART_BUFFER_SECONDS` (default 12)
@@ -68,7 +63,6 @@ docker compose logs -f cockpit-api cockpit-worker
 
 ## Endpoint attesi
 
-- n8n: `https://<DOMAIN_N8N>`
 - Cockpit API: `https://<DOMAIN_API>`
 - Evolution API: `https://<DOMAIN_EVOLUTION>`
 - Privacy node (interno): `http://privacy-node:8100`
@@ -145,6 +139,17 @@ curl https://<DOMAIN_API>/jobs/<JOB_ID>
   - sparse keyword overlap
   - rerank finale OpenRouter free
 
+## Step 5 completato (decommission n8n + hardening)
+
+- `n8n` rimosso da `docker-compose.yml`.
+- Reverse proxy Caddy allineato solo a:
+  - `DOMAIN_API`
+  - `DOMAIN_EVOLUTION`
+- Hardening operativo introdotto:
+  - `make backup` (`scripts/backup.sh`)
+  - `make healthcheck` (`scripts/healthcheck.sh`)
+  - runbook operativo in `docs/operations.md`
+
 Esempio ingest:
 
 ```bash
@@ -187,6 +192,7 @@ Le variabili ambiente di Evolution API possono cambiare tra release minor. La ba
 
 - Architettura: `docs/architecture.md`
 - Piano migrazione: `docs/migration-plan.md`
+- Operatività: `docs/operations.md`
 - Prompt orchestratore: `flows/master_prompt_cognitive_orchestrator.xml`
 - Reverse proxy: `infra/caddy/Caddyfile`
 

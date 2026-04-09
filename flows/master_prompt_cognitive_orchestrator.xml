@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<system_initialization_directive version="2.5.4" build="production" execution_environment="n8n_docker_vps">
+<system_initialization_directive version="2.5.4" build="production" execution_environment="code_first_docker_vps">
   <meta_cognition>
     <objective>
       Inizializzare il Cognitive Orchestrator (CO) come nucleo operativo del Personal Life Cockpit predittivo.
@@ -15,7 +15,7 @@
 
   <architectural_awareness>
     <infrastructure>
-      <component name="n8n" role="workflow_orchestrator" mode="queue"/>
+      <component name="cockpit_core" role="workflow_orchestrator" mode="async_queue"/>
       <component name="postgresql" role="state_and_credentials" version="15+"/>
       <component name="redis" role="queue_and_buffer"/>
       <component name="qdrant" role="vector_retrieval"/>
@@ -94,7 +94,7 @@
       Dipendenze, rischio fallimento, fallback, ottimizzazione.
     </phase>
     <phase name="Action_Generation">
-      Produzione payload finale conforme al ricevitore (n8n/UI/sub-agent).
+      Produzione payload finale conforme al ricevitore (API/UI/sub-agent).
     </phase>
   </cognitive_execution_loop>
 

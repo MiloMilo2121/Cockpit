@@ -1,25 +1,5 @@
 name: life-cockpit
 
-x-n8n-common-env: &n8n-common-env
-  DB_TYPE: postgresdb
-  DB_POSTGRESDB_HOST: postgres
-  DB_POSTGRESDB_PORT: 5432
-  DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
-  DB_POSTGRESDB_USER: ${POSTGRES_USER}
-  DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
-  EXECUTIONS_MODE: queue
-  QUEUE_BULL_REDIS_HOST: redis
-  QUEUE_BULL_REDIS_PORT: 6379
-  QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD}
-  N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-  N8N_DIAGNOSTICS_ENABLED: false
-  N8N_LOG_LEVEL: info
-  N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: true
-  GENERIC_TIMEZONE: ${TZ}
-  N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE}
-  N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
-  N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
-
 x-cockpit-common-env: &cockpit-common-env
   APP_ENV: ${APP_ENV}
   TZ: ${TZ}
@@ -106,58 +86,6 @@ services:
       QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
     volumes:
       - qdrant_data:/qdrant/storage
-    networks:
-      - backend
-
-  n8n-web:
-    image: docker.n8n.io/n8nio/n8n:latest
-    container_name: lc-n8n-web
-    restart: unless-stopped
-    command: n8n start
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      <<: *n8n-common-env
-      N8N_HOST: ${DOMAIN_N8N}
-      N8N_PORT: 5678
-      N8N_PROTOCOL: https
-      WEBHOOK_URL: https://${DOMAIN_N8N}/
-      N8N_SECURE_COOKIE: true
-      N8N_RUNNERS_ENABLED: true
-      OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: true
-      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
-      EXECUTIONS_DATA_SAVE_ON_ERROR: all
-      EXECUTIONS_DATA_SAVE_ON_PROGRESS: false
-    volumes:
-      - n8n_data:/home/node/.n8n
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz >/dev/null"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    networks:
-      - backend
-
-  n8n-worker:
-    image: docker.n8n.io/n8nio/n8n:latest
-    container_name: lc-n8n-worker
-    restart: unless-stopped
-    command: n8n worker --concurrency=${N8N_WORKER_CONCURRENCY}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      <<: *n8n-common-env
-      N8N_RUNNERS_ENABLED: true
-      N8N_DISABLE_UI: true
-    volumes:
-      - n8n_data:/home/node/.n8n
     networks:
       - backend
 
@@ -282,8 +210,6 @@ services:
     container_name: lc-caddy
     restart: unless-stopped
     depends_on:
-      n8n-web:
-        condition: service_healthy
       cockpit-api:
         condition: service_healthy
       evolution-api:
@@ -293,7 +219,6 @@ services:
       - "443:443"
     environment:
       LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
-      DOMAIN_N8N: ${DOMAIN_N8N}
       DOMAIN_API: ${DOMAIN_API}
       DOMAIN_EVOLUTION: ${DOMAIN_EVOLUTION}
     volumes:
@@ -315,7 +240,6 @@ volumes:
   postgres_data:
   redis_data:
   qdrant_data:
-  n8n_data:
   evolution_instances:
   ollama_data:
   caddy_data:

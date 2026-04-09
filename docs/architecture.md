@@ -4,7 +4,6 @@
 
 - Reverse proxy: `Caddy` (TLS automatico)
 - Runtime code-first: `cockpit-core` (`FastAPI`) + `cockpit-worker` (`Celery`)
-- Orchestrazione: `n8n` in queue mode (`n8n-web` + `n8n-worker`)
 - Persistenza: `PostgreSQL`
 - Messaggistica interna: `Redis`
 - Memoria semantica: `Qdrant`
@@ -13,8 +12,6 @@
 - Privacy layer: `privacy-node` (redazione/restore PII)
 
 Tutti i servizi sono su rete Docker interna `backend`; verso Internet è esposto solo `caddy`.
-
-Nota migrazione: `n8n` resta attivo come fallback legacy finché i workflow critici non vengono portati in `cockpit-core`.
 
 ## 2) Flusso dati raccomandato (messaggistica)
 
@@ -40,8 +37,8 @@ Nota migrazione: `n8n` resta attivo come fallback legacy finché i workflow crit
 
 ## 4) Affidabilità e resilienza
 
-- Scomporre i flussi lunghi in sub-workflow (`Execute Sub-Workflow`).
-- Implementare un workflow globale di errore (`Error Trigger`) con classificazione severità.
+- Scomporre i flussi lunghi in task/moduli indipendenti nel worker Celery.
+- Instradare gli errori critici verso dead-letter con classificazione severità.
 - Circuit breaker per integrazioni instabili:
   - stato su Redis (`closed/open/half-open`)
   - apertura su errori consecutivi oltre soglia
@@ -50,9 +47,9 @@ Nota migrazione: `n8n` resta attivo come fallback legacy finché i workflow crit
 ## 5) Sicurezza zero-trust
 
 - Redazione PII locale obbligatoria prima di chiamate cloud LLM.
-- Logging n8n con payload minimizzati e redatti.
+- Logging applicativo con payload minimizzati e redatti.
 - Credenziali solo in `.env` e mai in repository.
-- Accesso UI n8n con basic auth + TLS.
+- Accesso API solo via Caddy con TLS.
 
 ## 6) RAG e qualità retrieval
 

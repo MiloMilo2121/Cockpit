@@ -12,6 +12,7 @@ __pycache__/
 
 # Runtime data
 /tmp/
+/backups/
 
 # Optional local overrides
 compose.override.yml

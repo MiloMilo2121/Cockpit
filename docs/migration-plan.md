@@ -38,9 +38,12 @@
 - Endpoint attivi:
   - `POST /rag/documents/ingest` (job asincrono)
   - `POST /rag/query` (query sincrona)
-- Spegnimento progressivo n8n: resta da disattivare i workflow legacy già sostituiti.
+- Spegnimento progressivo n8n completato nello Step 5.
 
-## Step 5
+## Step 5 (completato)
 
-- Rimozione finale servizi n8n dal compose.
-- Hardening operativo (backup, alerting, dashboards, runbook incidenti).
+- Servizi n8n rimossi dal `docker-compose.yml` e dal reverse proxy.
+- Hardening operativo introdotto:
+  - script backup PostgreSQL + Qdrant
+  - script healthcheck servizi core
+  - runbook operativo in `docs/operations.md`
