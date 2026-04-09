@@ -44,7 +44,8 @@ cp .env.example .env
 - `REDIS_PASSWORD`
 - `N8N_ENCRYPTION_KEY`
 - `N8N_BASIC_AUTH_PASSWORD`
-- `OPENROUTER_API_KEY` (opzionale ma consigliata)
+- `OPENROUTER_API_KEY` (obbligatoria per Step 3)
+- `OPENROUTER_FREE_MODELS` (lista modelli gratuiti OpenRouter, separati da virgola)
 - `SMART_BUFFER_SECONDS` (default 12)
 - `QDRANT_API_KEY`
 - `EVOLUTION_API_KEY`
@@ -116,6 +117,18 @@ curl https://<DOMAIN_API>/jobs/<JOB_ID>
   - `processing` con `job_id`
   - `duplicate` con `job_id` precedente (se disponibile)
   - `ignored` per self-message
+
+## Step 3 attivo (multi-agent + resilienza)
+
+- Router multi-agent: `RAG_ANALYST_AGENT`, `COMMUNICATION_AGENT`, `SYSTEM_MAINTENANCE_AGENT`, `GENERAL_PLANNER_AGENT`.
+- Solo modelli OpenRouter gratuiti (`:free`) tramite `OPENROUTER_FREE_MODELS`.
+- Circuit breaker su OpenRouter con variabili:
+  - `CIRCUIT_BREAKER_FAILURE_THRESHOLD`
+  - `CIRCUIT_BREAKER_OPEN_SECONDS`
+- Dead-letter queue persistita su PostgreSQL (`cockpit_dead_letter_events`).
+- Endpoint operativi:
+  - `GET /ops/metrics`
+  - `GET /ops/dead-letter?limit=50`
 
 ## Pattern operativi consigliati
 

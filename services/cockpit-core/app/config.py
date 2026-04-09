@@ -15,6 +15,10 @@ class Settings(BaseSettings):
 
     openrouter_api_key: str = ""
     openrouter_model: str = "qwen/qwen3-32b:free"
+    openrouter_free_models: str = "qwen/qwen3-32b:free"
+    openrouter_timeout_seconds: int = 45
+    openrouter_temperature: float = 0.2
+    openrouter_max_tokens: int = 700
 
     ollama_base_url: str = "http://ollama:11434"
     ollama_model: str = "llama3.2"
@@ -29,6 +33,10 @@ class Settings(BaseSettings):
     smart_buffer_seconds: int = 12
     smart_buffer_ttl_seconds: int = 120
     loop_block_from_me: bool = True
+    allow_local_degraded_mode: bool = True
+    circuit_breaker_failure_threshold: int = 4
+    circuit_breaker_open_seconds: int = 90
+    dead_letter_enabled: bool = True
 
     @property
     def redis_broker_url(self) -> str:
@@ -41,6 +49,15 @@ class Settings(BaseSettings):
         if self.redis_password:
             return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/1"
         return f"redis://{self.redis_host}:{self.redis_port}/1"
+
+    @property
+    def openrouter_models(self) -> list[str]:
+        raw = [item.strip() for item in self.openrouter_free_models.split(",")]
+        parsed = [item for item in raw if item]
+        if not parsed:
+            parsed = [self.openrouter_model]
+        free_only = [item for item in parsed if item.endswith(":free")]
+        return free_only or [self.openrouter_model]
 
 
 settings = Settings()

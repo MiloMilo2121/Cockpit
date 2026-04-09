@@ -5,9 +5,12 @@ from typing import Any, Dict
 import httpx
 from celery import Task
 
+from app.agents import route_to_agent, run_specialist
 from app.buffer_store import consume_buffered_events
-from app.celery_app import celery_app
+from app.circuit_breaker import is_open, record_failure, record_success
 from app.config import settings
+from app.dead_letter import push_dead_letter
+from app.metrics import increment_metric
 
 
 class RetryableTask(Task):
@@ -28,10 +31,10 @@ def _redact_text(text: str) -> Dict[str, Any]:
     return response.json()
 
 
-def _restore_text(request_id: str, text: str) -> str:
+def _restore_text(request_id: str, text: str, *, consume: bool = True) -> str:
     response = httpx.post(
         f"{settings.privacy_node_url}/restore",
-        json={"request_id": request_id, "text": text, "consume": True},
+        json={"request_id": request_id, "text": text, "consume": consume},
         timeout=15.0,
     )
     response.raise_for_status()
@@ -39,58 +42,55 @@ def _restore_text(request_id: str, text: str) -> str:
     return str(payload.get("restored_text", ""))
 
 
-def _call_openrouter(prompt: str) -> str:
-    if not settings.openrouter_api_key:
-        raise RuntimeError("openrouter_api_key_not_set")
+def _degraded_local_response(message: str) -> str:
+    lowered = message.lower()
+    if any(keyword in lowered for keyword in ["bug", "errore", "error", "crash", "server", "deploy"]):
+        intent = "technical_maintenance"
+        risk = "high"
+    elif any(keyword in lowered for keyword in ["email", "rispondi", "reply", "messaggio", "whatsapp"]):
+        intent = "communication"
+        risk = "medium"
+    elif any(keyword in lowered for keyword in ["contratto", "documento", "fattura", "report", "analizza"]):
+        intent = "knowledge_analysis"
+        risk = "medium"
+    else:
+        intent = "planning"
+        risk = "medium"
 
-    headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": settings.openrouter_model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are the orchestration core. Return concise operational output.",
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-        "temperature": 0.2,
-    }
-
-    response = httpx.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers=headers,
-        json=body,
-        timeout=45.0,
+    return (
+        f"INTENT: {intent}\n"
+        f"RISK: {risk}\n"
+        "NEXT_ACTIONS:\n"
+        "1. Conferma il contesto operativo minimo.\n"
+        "2. Esegui il primo step a rischio basso entro 15 minuti.\n"
+        "3. Registra esito e prossima azione nel cockpit."
     )
-    response.raise_for_status()
-    payload = response.json()
-
-    try:
-        return payload["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError("invalid_openrouter_response") from exc
 
 
-def _call_ollama(prompt: str) -> str:
-    response = httpx.post(
-        f"{settings.ollama_base_url}/api/generate",
-        json={"model": settings.ollama_model, "prompt": prompt, "stream": False},
-        timeout=45.0,
+def _run_multi_agent_pipeline(message: str) -> Dict[str, str]:
+    route = route_to_agent(message)
+    specialist = run_specialist(
+        agent=route["agent"],
+        message=message,
+        route_reason=route["reason"],
+        priority=route["priority"],
     )
-    response.raise_for_status()
-    payload = response.json()
-    return str(payload.get("response", ""))
+    return {
+        "agent": route["agent"],
+        "priority": route["priority"],
+        "route_reason": route["reason"],
+        "router_model": route["router_model"],
+        "specialist_model": specialist["specialist_model"],
+        "output": specialist["output"],
+    }
 
 
 def _execute_orchestration(event: Dict[str, Any]) -> Dict[str, Any]:
+    increment_metric("orchestration_runs_total")
+
     message = str(event.get("message", "")).strip()
     if not message:
+        increment_metric("orchestration_rejected_empty_message_total")
         return {
             "status": "rejected",
             "reason": "empty_message",
@@ -100,39 +100,103 @@ def _execute_orchestration(event: Dict[str, Any]) -> Dict[str, Any]:
     redacted_text = str(redaction.get("redacted_text", ""))
     request_id = str(redaction.get("request_id", ""))
 
-    prompt = (
-        "Classify intent, priority and next action for this user message. "
-        "Return compact plain text. Message: "
-        f"{redacted_text}"
-    )
+    if is_open("openrouter"):
+        increment_metric("openrouter_circuit_open_hits_total")
+        if settings.allow_local_degraded_mode:
+            local_output = _degraded_local_response(redacted_text)
+            restored_output = _restore_text(request_id, local_output)
+            increment_metric("orchestration_degraded_total")
+            return {
+                "status": "completed",
+                "route_used": "local_degraded_circuit_open",
+                "agent": "DEGRADED_LOCAL",
+                "priority": "medium",
+                "user_id": event.get("user_id"),
+                "source": event.get("source"),
+                "result": restored_output,
+            }
 
-    route_used = "openrouter"
+        push_dead_letter(
+            stage="orchestration_precheck",
+            reason="openrouter_circuit_open",
+            payload=event,
+            error="circuit_open",
+        )
+        return {
+            "status": "failed",
+            "reason": "openrouter_circuit_open",
+            "user_id": event.get("user_id"),
+            "source": event.get("source"),
+        }
+
     try:
-        llm_output = _call_openrouter(prompt)
-    except Exception:  # noqa: BLE001
-        route_used = "ollama"
-        llm_output = _call_ollama(prompt)
+        multi_agent_result = _run_multi_agent_pipeline(redacted_text)
+        record_success("openrouter")
+        increment_metric("openrouter_success_total")
 
-    restored_output = _restore_text(request_id, llm_output)
+        restored_output = _restore_text(request_id, multi_agent_result["output"])
+        return {
+            "status": "completed",
+            "route_used": "openrouter_free_multi_agent",
+            "agent": multi_agent_result["agent"],
+            "priority": multi_agent_result["priority"],
+            "route_reason": multi_agent_result["route_reason"],
+            "router_model": multi_agent_result["router_model"],
+            "specialist_model": multi_agent_result["specialist_model"],
+            "user_id": event.get("user_id"),
+            "source": event.get("source"),
+            "result": restored_output,
+        }
+    except Exception as exc:  # noqa: BLE001
+        failure_info = record_failure("openrouter")
+        increment_metric("openrouter_failure_total")
+        push_dead_letter(
+            stage="openrouter_pipeline",
+            reason="openrouter_failure",
+            payload=event,
+            error=str(exc),
+        )
 
-    return {
-        "status": "completed",
-        "route_used": route_used,
-        "user_id": event.get("user_id"),
-        "source": event.get("source"),
-        "result": restored_output,
-    }
+        if settings.allow_local_degraded_mode:
+            local_output = _degraded_local_response(redacted_text)
+            restored_output = _restore_text(request_id, local_output)
+            increment_metric("orchestration_degraded_total")
+            return {
+                "status": "completed",
+                "route_used": "local_degraded_after_openrouter_failure",
+                "circuit_opened": bool(failure_info.get("opened")),
+                "agent": "DEGRADED_LOCAL",
+                "priority": "medium",
+                "user_id": event.get("user_id"),
+                "source": event.get("source"),
+                "result": restored_output,
+            }
+
+        return {
+            "status": "failed",
+            "reason": "openrouter_failure",
+            "error": str(exc),
+            "user_id": event.get("user_id"),
+            "source": event.get("source"),
+        }
+
+
+from app.celery_app import celery_app  # noqa: E402
 
 
 @celery_app.task(bind=True, base=RetryableTask, name="cockpit.process_ingestion_event")
 def process_ingestion_event(self: RetryableTask, event: Dict[str, Any]) -> Dict[str, Any]:
+    increment_metric("jobs_direct_total")
     return _execute_orchestration(event)
 
 
 @celery_app.task(bind=True, base=RetryableTask, name="cockpit.process_buffered_session")
 def process_buffered_session(self: RetryableTask, source: str, user_id: str) -> Dict[str, Any]:
+    increment_metric("jobs_buffered_total")
+
     buffered_events = consume_buffered_events(source=source, user_id=user_id)
     if not buffered_events:
+        increment_metric("buffer_empty_total")
         return {"status": "noop", "reason": "buffer_empty", "source": source, "user_id": user_id}
 
     messages = [
@@ -141,6 +205,7 @@ def process_buffered_session(self: RetryableTask, source: str, user_id: str) -> 
         if str(item.get("message", "")).strip()
     ]
     if not messages:
+        increment_metric("buffer_no_text_total")
         return {"status": "noop", "reason": "buffer_no_text", "source": source, "user_id": user_id}
 
     source_ids = [

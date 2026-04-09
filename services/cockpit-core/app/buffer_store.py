@@ -3,19 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import redis
-
 from app.config import settings
-
-
-def _redis() -> redis.Redis:
-    return redis.Redis(
-        host=settings.redis_host,
-        port=settings.redis_port,
-        password=settings.redis_password or None,
-        db=0,
-        decode_responses=True,
-    )
+from app.redis_client import get_redis_client
 
 
 def _buffer_key(source: str, user_id: str) -> str:
@@ -27,20 +16,20 @@ def _job_key(source: str, user_id: str) -> str:
 
 
 def append_buffered_event(*, source: str, user_id: str, event: dict[str, Any]) -> None:
-    client = _redis()
+    client = get_redis_client()
     key = _buffer_key(source, user_id)
     client.rpush(key, json.dumps(event))
     client.expire(key, settings.smart_buffer_ttl_seconds)
 
 
 def try_claim_buffer_job(*, source: str, user_id: str, job_id: str) -> bool:
-    client = _redis()
+    client = get_redis_client()
     key = _job_key(source, user_id)
     return bool(client.set(key, job_id, nx=True, ex=settings.smart_buffer_ttl_seconds))
 
 
 def get_buffer_job_id(*, source: str, user_id: str) -> str | None:
-    client = _redis()
+    client = get_redis_client()
     key = _job_key(source, user_id)
     value = client.get(key)
     if not value:
@@ -49,12 +38,12 @@ def get_buffer_job_id(*, source: str, user_id: str) -> str | None:
 
 
 def clear_buffer_job(*, source: str, user_id: str) -> None:
-    client = _redis()
+    client = get_redis_client()
     client.delete(_job_key(source, user_id))
 
 
 def consume_buffered_events(*, source: str, user_id: str) -> list[dict[str, Any]]:
-    client = _redis()
+    client = get_redis_client()
     list_key = _buffer_key(source, user_id)
     job_key = _job_key(source, user_id)
 

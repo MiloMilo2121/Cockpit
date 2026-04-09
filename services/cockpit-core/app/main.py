@@ -12,13 +12,21 @@ from app.buffer_store import (
     try_claim_buffer_job,
 )
 from app.celery_app import celery_app
+from app.circuit_breaker import get_state as get_circuit_breaker_state
 from app.config import settings
-from app.db import ensure_schema, find_job_id, map_job_to_message, register_message_event
+from app.db import (
+    ensure_schema,
+    find_job_id,
+    list_recent_dead_letter_events,
+    map_job_to_message,
+    register_message_event,
+)
 from app.event_utils import extract_source_message_id, self_message_reason
+from app.metrics import get_metrics_snapshot, increment_metric
 from app.schemas import AcceptedResponse, IngestionEvent, JobStatusResponse
 from app.tasks import process_buffered_session, process_ingestion_event
 
-app = FastAPI(title="cockpit-core-api", version="0.2.0")
+app = FastAPI(title="cockpit-core-api", version="0.3.0")
 
 
 @app.on_event("startup")
@@ -75,6 +83,8 @@ def _schedule_buffered_job(*, source: str, user_id: str) -> tuple[str, bool]:
 
 @app.post("/webhooks/inbox", response_model=AcceptedResponse, status_code=202)
 def ingest_event(event: IngestionEvent) -> AcceptedResponse:
+    increment_metric("ingestion_requests_total")
+
     source_message_id = extract_source_message_id(event)
     payload = event.model_dump(mode="json")
     payload["source_message_id"] = source_message_id
@@ -86,17 +96,20 @@ def ingest_event(event: IngestionEvent) -> AcceptedResponse:
         payload=payload,
     )
     if not inserted:
+        increment_metric("ingestion_duplicates_total")
         existing_job = find_job_id(source=event.source, source_message_id=source_message_id)
         return AcceptedResponse(status="duplicate", job_id=existing_job, reason="duplicate_message")
 
     blocked_reason = self_message_reason(event)
     if blocked_reason:
+        increment_metric("ingestion_ignored_total")
         return AcceptedResponse(status="ignored", reason=blocked_reason)
 
     if settings.smart_buffering_enabled and event.source == "whatsapp":
         append_buffered_event(source=event.source, user_id=event.user_id, event=payload)
         job_id, first_schedule = _schedule_buffered_job(source=event.source, user_id=event.user_id)
         map_job_to_message(source=event.source, source_message_id=source_message_id, job_id=job_id)
+        increment_metric("ingestion_buffered_total")
         return AcceptedResponse(
             status="processing",
             job_id=job_id,
@@ -105,6 +118,7 @@ def ingest_event(event: IngestionEvent) -> AcceptedResponse:
 
     job = process_ingestion_event.delay(payload)
     map_job_to_message(source=event.source, source_message_id=source_message_id, job_id=job.id)
+    increment_metric("ingestion_direct_dispatch_total")
     return AcceptedResponse(status="processing", job_id=job.id, reason="direct_dispatch")
 
 
@@ -127,3 +141,22 @@ def get_job(job_id: str) -> JobStatusResponse:
         return JobStatusResponse(status="failed", state=state, error=str(result.result))
 
     raise HTTPException(status_code=500, detail=f"Unexpected task state: {state}")
+
+
+@app.get("/ops/metrics")
+def ops_metrics() -> dict[str, object]:
+    return {
+        "metrics": get_metrics_snapshot(),
+        "circuit_breakers": {
+            "openrouter": get_circuit_breaker_state("openrouter"),
+        },
+    }
+
+
+@app.get("/ops/dead-letter")
+def ops_dead_letter(limit: int = 50) -> dict[str, object]:
+    events = list_recent_dead_letter_events(limit=limit)
+    return {
+        "count": len(events),
+        "events": events,
+    }

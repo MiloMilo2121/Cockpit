@@ -28,11 +28,15 @@ Nota migrazione: `n8n` resta attivo come fallback legacy finché i workflow crit
 
 ## 3) Routing LLM ibrido
 
-- Primario: provider cloud con modelli frontier per task complessi.
-- Fallback: `Ollama` locale per continuità operativa.
-- Politica suggerita:
-  - su `429/5xx` => retry con backoff esponenziale + jitter
-  - oltre soglia tentativi => fallback locale
+- Primario: OpenRouter con modelli gratuiti (`:free`) configurati in `OPENROUTER_FREE_MODELS`.
+- Multi-agent in due fasi:
+  - Router intent -> selezione agente specialistico.
+  - Specialista -> output operativo strutturato.
+- Resilienza:
+  - retry con backoff esponenziale + jitter
+  - circuit breaker su OpenRouter
+  - fallback locale degradato (se abilitato)
+  - dead-letter queue persistita su PostgreSQL
 
 ## 4) Affidabilità e resilienza
 

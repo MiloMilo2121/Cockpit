@@ -15,3 +15,12 @@ CREATE TABLE IF NOT EXISTS cockpit_message_jobs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (source, source_message_id)
 );
+
+CREATE TABLE IF NOT EXISTS cockpit_dead_letter_events (
+  id BIGSERIAL PRIMARY KEY,
+  stage TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
