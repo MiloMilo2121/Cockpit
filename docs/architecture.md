@@ -3,6 +3,7 @@
 ## 1) Topologia
 
 - Reverse proxy: `Caddy` (TLS automatico)
+- Runtime code-first: `cockpit-core` (`FastAPI`) + `cockpit-worker` (`Celery`)
 - Orchestrazione: `n8n` in queue mode (`n8n-web` + `n8n-worker`)
 - Persistenza: `PostgreSQL`
 - Messaggistica interna: `Redis`
@@ -12,6 +13,8 @@
 - Privacy layer: `privacy-node` (redazione/restore PII)
 
 Tutti i servizi sono su rete Docker interna `backend`; verso Internet è esposto solo `caddy`.
+
+Nota migrazione: `n8n` resta attivo come fallback legacy finché i workflow critici non vengono portati in `cockpit-core`.
 
 ## 2) Flusso dati raccomandato (messaggistica)
 

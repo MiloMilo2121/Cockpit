@@ -1,10 +1,13 @@
 # Personal Life Cockpit (Predictive)
 
-Base infrastrutturale self-hosted per un Life Cockpit predittivo con orchestrazione `n8n` in queue mode, RAG su `Qdrant`, messaggistica via `Evolution API`, fallback LLM locale con `Ollama` e layer privacy locale.
+Base infrastrutturale self-hosted per un Life Cockpit predittivo.  
+Attualmente include sia stack `n8n` legacy sia il nuovo runtime code-first `cockpit-core` (`FastAPI + Celery`) per migrazione progressiva.
 
 ## Stack
 
 - `n8n` (web + worker) in queue mode
+- `cockpit-core` (`FastAPI`) per webhook/API applicative
+- `cockpit-worker` (`Celery`) per orchestrazione asincrona e retry/backoff
 - `PostgreSQL 16` per stato/credenziali/log
 - `Redis 7` come broker/caching
 - `Qdrant` per retrieval vettoriale
@@ -20,6 +23,7 @@ Base infrastrutturale self-hosted per un Life Cockpit predittivo con orchestrazi
 - Docker Engine + Docker Compose plugin
 - DNS già configurato per:
   - `DOMAIN_N8N`
+  - `DOMAIN_API`
   - `DOMAIN_EVOLUTION`
 
 ## Quickstart
@@ -34,11 +38,13 @@ cp .env.example .env
 
 - `LETSENCRYPT_EMAIL`
 - `DOMAIN_N8N`
+- `DOMAIN_API`
 - `DOMAIN_EVOLUTION`
 - `POSTGRES_PASSWORD`
 - `REDIS_PASSWORD`
 - `N8N_ENCRYPTION_KEY`
 - `N8N_BASIC_AUTH_PASSWORD`
+- `OPENROUTER_API_KEY` (opzionale ma consigliata)
 - `QDRANT_API_KEY`
 - `EVOLUTION_API_KEY`
 - `PRIVACY_SALT`
@@ -53,14 +59,36 @@ docker compose up -d --build
 
 ```bash
 docker compose ps
-docker compose logs -f n8n-web
+docker compose logs -f cockpit-api cockpit-worker
 ```
 
 ## Endpoint attesi
 
 - n8n: `https://<DOMAIN_N8N>`
+- Cockpit API: `https://<DOMAIN_API>`
 - Evolution API: `https://<DOMAIN_EVOLUTION>`
 - Privacy node (interno): `http://privacy-node:8100`
+
+## Test rapido cockpit-core
+
+1. Invia evento al webhook:
+
+```bash
+curl -X POST https://<DOMAIN_API>/webhooks/inbox \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "web",
+    "user_id": "user-1",
+    "message": "Domani voglio pianificare 3 task ad alta priorità",
+    "metadata": {}
+  }'
+```
+
+2. Controlla stato job:
+
+```bash
+curl https://<DOMAIN_API>/jobs/<JOB_ID>
+```
 
 ## Pattern operativi consigliati
 
@@ -77,6 +105,7 @@ Le variabili ambiente di Evolution API possono cambiare tra release minor. La ba
 ## Documentazione progetto
 
 - Architettura: `docs/architecture.md`
+- Piano migrazione: `docs/migration-plan.md`
 - Prompt orchestratore: `flows/master_prompt_cognitive_orchestrator.xml`
 - Reverse proxy: `infra/caddy/Caddyfile`
 

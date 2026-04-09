@@ -20,6 +20,22 @@ x-n8n-common-env: &n8n-common-env
   N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
   N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
 
+x-cockpit-common-env: &cockpit-common-env
+  APP_ENV: ${APP_ENV}
+  TZ: ${TZ}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+  OPENROUTER_MODEL: ${OPENROUTER_MODEL}
+  OLLAMA_BASE_URL: http://ollama:11434
+  OLLAMA_MODEL: ${OLLAMA_MODEL}
+  PRIVACY_NODE_URL: http://privacy-node:8100
+  QDRANT_URL: http://qdrant:6333
+  QDRANT_API_KEY: ${QDRANT_API_KEY}
+  COCKPIT_WORKER_CONCURRENCY: ${COCKPIT_WORKER_CONCURRENCY}
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -122,6 +138,47 @@ services:
     networks:
       - backend
 
+  cockpit-api:
+    build:
+      context: ./services/cockpit-core
+    container_name: lc-cockpit-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      privacy-node:
+        condition: service_healthy
+    environment:
+      <<: *cockpit-common-env
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - backend
+
+  cockpit-worker:
+    build:
+      context: ./services/cockpit-core
+    container_name: lc-cockpit-worker
+    restart: unless-stopped
+    command: celery -A app.celery_app:celery_app worker --loglevel=INFO --concurrency=${COCKPIT_WORKER_CONCURRENCY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      privacy-node:
+        condition: service_healthy
+    environment:
+      <<: *cockpit-common-env
+    networks:
+      - backend
+
   evolution-api:
     image: atendai/evolution-api:v2.1.1
     container_name: lc-evolution-api
@@ -204,6 +261,8 @@ services:
     depends_on:
       n8n-web:
         condition: service_healthy
+      cockpit-api:
+        condition: service_healthy
       evolution-api:
         condition: service_healthy
     ports:
@@ -212,6 +271,7 @@ services:
     environment:
       LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
       DOMAIN_N8N: ${DOMAIN_N8N}
+      DOMAIN_API: ${DOMAIN_API}
       DOMAIN_EVOLUTION: ${DOMAIN_EVOLUTION}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
