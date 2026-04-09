@@ -71,3 +71,10 @@
   - Drive via `pageToken`
   - Calendar via `syncToken`
 - Endpoint aggiunti per auth, exchange, list account, sync manuale, cursori ed eventi recenti.
+
+## Step 8 (completato)
+
+- Frontend `cockpit-ui` aggiunto come servizio separato.
+- Reverse proxy Caddy esteso con `DOMAIN_APP` e routing `/api`.
+- Endpoint `GET /dashboard/overview` introdotto per alimentare la UI HQ.
+- Prima versione della plancia comando top-level implementata.

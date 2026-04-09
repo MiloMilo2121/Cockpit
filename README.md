@@ -7,6 +7,7 @@ Runtime completamente code-first: `cockpit-core` (`FastAPI + Celery`) con pipeli
 
 - `cockpit-core` (`FastAPI`) per webhook/API applicative
 - `cockpit-worker` (`Celery`) per orchestrazione asincrona e retry/backoff
+- `cockpit-ui` (`React + Vite`) come plancia comando top-level
 - `PostgreSQL 16` per stato/credenziali/log
 - `Redis 7` come broker/caching
 - `Qdrant` per retrieval vettoriale
@@ -24,6 +25,7 @@ Runtime completamente code-first: `cockpit-core` (`FastAPI + Celery`) con pipeli
 - Docker Engine + Docker Compose plugin
 - DNS già configurato per:
   - `DOMAIN_API`
+  - `DOMAIN_APP`
   - `DOMAIN_EVOLUTION`
 
 ## Quickstart
@@ -38,6 +40,7 @@ cp .env.example .env
 
 - `LETSENCRYPT_EMAIL`
 - `DOMAIN_API`
+- `DOMAIN_APP`
 - `DOMAIN_EVOLUTION`
 - `POSTGRES_PASSWORD`
 - `REDIS_PASSWORD`
@@ -70,6 +73,7 @@ docker compose logs -f cockpit-api cockpit-worker
 ## Endpoint attesi
 
 - Cockpit API: `https://<DOMAIN_API>`
+- Cockpit UI: `https://<DOMAIN_APP>`
 - Evolution API: `https://<DOMAIN_EVOLUTION>`
 - Privacy node (interno): `http://privacy-node:8100`
 
@@ -215,6 +219,20 @@ curl -X POST https://<DOMAIN_API>/integrations/google/accounts/1/sync \
     "bootstrap": false
   }'
 ```
+
+## Step 8 completato (Cockpit UI HQ)
+
+- Nuovo servizio `cockpit-ui` in [docker-compose.yml](/Users/marcomilanello/Documents/cockpit/docker-compose.yml).
+- Reverse proxy Caddy su `DOMAIN_APP` con:
+  - UI su `/`
+  - backend proxato su `/api`
+- Nuovo endpoint aggregato `GET /dashboard/overview` per alimentare la plancia.
+- UI stile command-center con:
+  - posture sistema
+  - contatori memoria/segnali/account
+  - operational feed
+  - source mesh
+  - next build priorities
 
 Esempio ingest:
 

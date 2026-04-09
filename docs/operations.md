@@ -6,6 +6,7 @@
 - `make healthcheck`
 - `curl -fsS https://<DOMAIN_API>/ops/metrics`
 - `make logs-watcher` (controllo ingest file automatico)
+- `make logs-ui`
 - `curl -fsS https://<DOMAIN_API>/integrations/google/accounts`
 
 ## 2) Backups
@@ -112,3 +113,14 @@ curl -X POST https://<DOMAIN_API>/integrations/google/accounts/<ACCOUNT_ID>/sync
 - Restrict VPS inbound ports to `22`, `80`, `443`.
 - Use SSH keys only, disable password auth.
 - Keep Docker and OS patched (`apt update && apt upgrade -y`).
+
+## 8) Cockpit UI HQ (Step 8)
+
+- Configura `DOMAIN_APP` in `.env`.
+- Dopo `docker compose up -d --build`, apri:
+  - `https://<DOMAIN_APP>`
+- Log UI:
+
+```bash
+make logs-ui
+```

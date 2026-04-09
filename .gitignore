@@ -10,6 +10,11 @@
 __pycache__/
 *.pyc
 
+# Frontend
+node_modules/
+dist/
+*.tsbuildinfo
+
 # Runtime data
 /tmp/
 /backups/

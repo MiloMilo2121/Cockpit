@@ -4,6 +4,7 @@
 
 - Reverse proxy: `Caddy` (TLS automatico)
 - Runtime code-first: `cockpit-core` (`FastAPI`) + `cockpit-worker` (`Celery`)
+- Frontend command center: `cockpit-ui` (`React + Vite`)
 - Persistenza: `PostgreSQL`
 - Messaggistica interna: `Redis`
 - Memoria semantica: `Qdrant`
@@ -110,3 +111,11 @@ Regole pratiche:
   - Calendar: `sync_token:<calendar_id>`
 - `External documents` normalizzati e reindicizzati in RAG con replace per `document_id`.
 - Sync eseguita via task Celery, non nel thread HTTP.
+
+## 11) UI command center (Step 8)
+
+- `cockpit-ui` espone una plancia top-level su `DOMAIN_APP`.
+- Browser e backend condividono host UI tramite proxy Caddy:
+  - `/` -> `cockpit-ui`
+  - `/api/*` -> `cockpit-api`
+- Endpoint aggregato `GET /dashboard/overview` usato dalla UI per evitare fan-out eccessivo lato browser.

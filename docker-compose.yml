@@ -142,6 +142,23 @@ services:
     networks:
       - backend
 
+  cockpit-ui:
+    build:
+      context: ./services/cockpit-ui
+    container_name: lc-cockpit-ui
+    restart: unless-stopped
+    depends_on:
+      cockpit-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4173/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - backend
+
   file-watcher:
     build:
       context: ./services/file-watcher
@@ -257,6 +274,8 @@ services:
     depends_on:
       cockpit-api:
         condition: service_healthy
+      cockpit-ui:
+        condition: service_healthy
       evolution-api:
         condition: service_healthy
     ports:
@@ -265,6 +284,7 @@ services:
     environment:
       LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
       DOMAIN_API: ${DOMAIN_API}
+      DOMAIN_APP: ${DOMAIN_APP}
       DOMAIN_EVOLUTION: ${DOMAIN_EVOLUTION}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro

@@ -15,6 +15,26 @@
   }
 }
 
+{$DOMAIN_APP} {
+  encode zstd gzip
+
+  @api path /api/*
+  handle @api {
+    uri strip_prefix /api
+    reverse_proxy cockpit-api:8000
+  }
+
+  handle {
+    reverse_proxy cockpit-ui:4173
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+}
+
 {$DOMAIN_EVOLUTION} {
   encode zstd gzip
   reverse_proxy evolution-api:8080

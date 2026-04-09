@@ -18,9 +18,12 @@ from app.dead_letter import push_dead_letter
 from app.db import (
     ensure_schema,
     find_job_id,
+    get_dashboard_counts,
     get_google_account,
     list_google_accounts,
+    list_recent_message_events,
     list_recent_raw_events,
+    list_recent_raw_events_global,
     list_sync_cursors,
     list_recent_dead_letter_events,
     map_job_to_message,
@@ -228,6 +231,71 @@ def ops_dead_letter(limit: int = 50) -> dict[str, object]:
     return {
         "count": len(events),
         "events": events,
+    }
+
+
+@app.get("/dashboard/overview")
+def dashboard_overview(limit: int = 12) -> dict[str, object]:
+    safe_limit = min(max(limit, 4), 30)
+    counts = get_dashboard_counts()
+    metrics = get_metrics_snapshot()
+    dead_letters = list_recent_dead_letter_events(limit=safe_limit)
+    raw_events = list_recent_raw_events_global(limit=safe_limit)
+    message_events = list_recent_message_events(limit=safe_limit)
+    accounts = list_google_accounts()
+    circuit_state = get_circuit_breaker_state("openrouter")
+
+    command_feed: list[dict[str, object]] = []
+
+    for item in raw_events:
+        command_feed.append(
+            {
+                "kind": "external_event",
+                "headline": f"{item['provider']}::{item['resource_type']}::{item['event_type']}",
+                "subline": item["external_id"],
+                "timestamp": item["created_at"],
+                "severity": "high" if str(item["event_type"]).endswith("removed") else "normal",
+            }
+        )
+
+    for item in message_events:
+        payload = item["payload"] if isinstance(item.get("payload"), dict) else {}
+        command_feed.append(
+            {
+                "kind": "message_event",
+                "headline": f"{item['source']} incoming",
+                "subline": str(payload.get("message", ""))[:140],
+                "timestamp": item["received_at"],
+                "severity": "normal",
+            }
+        )
+
+    for item in dead_letters:
+        command_feed.append(
+            {
+                "kind": "dead_letter",
+                "headline": f"{item['stage']}::{item['reason']}",
+                "subline": item["error"] or "no_error_text",
+                "timestamp": item["created_at"],
+                "severity": "critical",
+            }
+        )
+
+    command_feed.sort(key=lambda row: str(row.get("timestamp", "")), reverse=True)
+
+    posture = "nominal"
+    if dead_letters:
+        posture = "attention"
+    if str(circuit_state.get("state", "closed")) == "open":
+        posture = "degraded"
+
+    return {
+        "posture": posture,
+        "counts": counts,
+        "metrics": metrics,
+        "circuit_breakers": {"openrouter": circuit_state},
+        "accounts": accounts,
+        "command_feed": command_feed[:safe_limit],
     }
 
 

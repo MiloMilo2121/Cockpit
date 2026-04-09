@@ -261,6 +261,32 @@ def list_recent_dead_letter_events(limit: int = 50) -> list[dict[str, Any]]:
     return result
 
 
+def list_recent_message_events(limit: int = 20) -> list[dict[str, Any]]:
+    safe_limit = min(max(limit, 1), 200)
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT source, source_message_id, user_id, payload, received_at
+            FROM cockpit_message_events
+            ORDER BY received_at DESC
+            LIMIT %s;
+            """,
+            (safe_limit,),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "source": str(row[0]),
+            "source_message_id": str(row[1]),
+            "user_id": str(row[2]),
+            "payload": row[3] if isinstance(row[3], dict) else {},
+            "received_at": _iso_or_none(row[4]),
+        }
+        for row in rows
+    ]
+
+
 def create_google_oauth_state(
     *,
     state: str,
@@ -660,6 +686,37 @@ def list_recent_raw_events(*, account_id: int, limit: int = 50) -> list[dict[str
     ]
 
 
+def list_recent_raw_events_global(limit: int = 50) -> list[dict[str, Any]]:
+    safe_limit = min(max(limit, 1), 200)
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT event_uid, account_id, provider, resource_type, external_id, event_type, source_cursor, occurred_at, created_at, payload
+            FROM cockpit_raw_events
+            ORDER BY created_at DESC
+            LIMIT %s;
+            """,
+            (safe_limit,),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "event_uid": str(row[0]),
+            "account_id": int(row[1]),
+            "provider": str(row[2]),
+            "resource_type": str(row[3]),
+            "external_id": str(row[4]),
+            "event_type": str(row[5]),
+            "source_cursor": str(row[6]),
+            "occurred_at": _iso_or_none(row[7]),
+            "created_at": _iso_or_none(row[8]),
+            "payload": row[9] if isinstance(row[9], dict) else {},
+        }
+        for row in rows
+    ]
+
+
 def upsert_external_document(
     *,
     account_id: int,
@@ -701,3 +758,20 @@ def upsert_external_document(
                 Jsonb(metadata),
             ),
         )
+
+
+def get_dashboard_counts() -> dict[str, int]:
+    queries = {
+        "message_events": "SELECT COUNT(*) FROM cockpit_message_events;",
+        "dead_letter_events": "SELECT COUNT(*) FROM cockpit_dead_letter_events;",
+        "google_accounts": "SELECT COUNT(*) FROM cockpit_google_accounts;",
+        "raw_events": "SELECT COUNT(*) FROM cockpit_raw_events;",
+        "external_documents": "SELECT COUNT(*) FROM cockpit_external_documents;",
+    }
+    results: dict[str, int] = {}
+    with _connect() as conn, conn.cursor() as cur:
+        for key, query in queries.items():
+            cur.execute(query)
+            row = cur.fetchone()
+            results[key] = int(row[0]) if row else 0
+    return results

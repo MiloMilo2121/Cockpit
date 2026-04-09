@@ -1,6 +1,6 @@
 COMPOSE = docker compose
 
-.PHONY: up down restart ps logs logs-core logs-watcher backup healthcheck validate
+.PHONY: up down restart ps logs logs-core logs-ui logs-watcher backup healthcheck validate
 
 up:
 	$(COMPOSE) up -d --build
@@ -20,6 +20,9 @@ logs:
 
 logs-core:
 	$(COMPOSE) logs -f --tail=200 cockpit-api cockpit-worker
+
+logs-ui:
+	$(COMPOSE) logs -f --tail=200 cockpit-ui
 
 logs-watcher:
 	$(COMPOSE) logs -f --tail=200 file-watcher
