@@ -18,12 +18,13 @@ Nota migrazione: `n8n` resta attivo come fallback legacy finché i workflow crit
 
 ## 2) Flusso dati raccomandato (messaggistica)
 
-1. `Evolution API` riceve evento WhatsApp e invia webhook a n8n.
-2. n8n applica smart buffering su `Redis` (aggregazione messaggi finestra breve).
-3. n8n invia testo aggregato a `privacy-node /redact`.
-4. Testo redatto va a LLM router (OpenRouter primario, Ollama fallback).
-5. Output LLM torna a `privacy-node /restore`.
-6. n8n invia risposta finale verso Evolution API.
+1. `Evolution API` riceve evento WhatsApp e invia webhook a `cockpit-api`.
+2. `cockpit-api` applica dedup (`source + source_message_id`) su PostgreSQL.
+3. Eventi WhatsApp vengono bufferizzati su Redis e aggregati da `cockpit-worker`.
+4. `cockpit-worker` invia testo aggregato a `privacy-node /redact`.
+5. Testo redatto va a LLM router (OpenRouter primario, Ollama fallback).
+6. Output LLM torna a `privacy-node /restore`.
+7. Il risultato viene reso disponibile via endpoint `/jobs/{job_id}`.
 
 ## 3) Routing LLM ibrido
 

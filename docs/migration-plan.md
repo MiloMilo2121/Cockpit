@@ -9,10 +9,12 @@
 - Routing LLM iniziale con fallback OpenRouter -> Ollama.
 - Redazione PII locale integrata tramite `privacy-node`.
 
-## Step 2
+## Step 2 (completato)
 
-- Migrare Smart Buffering (attualmente previsto in n8n) in Redis direttamente nel worker.
-- Gestione dedup/loop prevention con `message_id` su PostgreSQL.
+- Smart Buffering implementato in Redis per eventi `source=whatsapp`.
+- Task Celery differita (`process_buffered_session`) con aggregazione messaggi in finestra temporale.
+- Dedup idempotente su PostgreSQL (`source + source_message_id`) con mappatura al `job_id`.
+- Loop prevention applicata su payload self-message (`fromMe=true` / `direction=outbound`).
 
 ## Step 3
 

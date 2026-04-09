@@ -1,11 +1,29 @@
+from __future__ import annotations
+
+from uuid import uuid4
+
 from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException
 
+from app.buffer_store import (
+    append_buffered_event,
+    clear_buffer_job,
+    get_buffer_job_id,
+    try_claim_buffer_job,
+)
 from app.celery_app import celery_app
+from app.config import settings
+from app.db import ensure_schema, find_job_id, map_job_to_message, register_message_event
+from app.event_utils import extract_source_message_id, self_message_reason
 from app.schemas import AcceptedResponse, IngestionEvent, JobStatusResponse
-from app.tasks import process_ingestion_event
+from app.tasks import process_buffered_session, process_ingestion_event
 
-app = FastAPI(title="cockpit-core-api", version="0.1.0")
+app = FastAPI(title="cockpit-core-api", version="0.2.0")
+
+
+@app.on_event("startup")
+def startup() -> None:
+    ensure_schema()
 
 
 @app.get("/health")
@@ -13,10 +31,81 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _schedule_buffered_job(*, source: str, user_id: str) -> tuple[str, bool]:
+    candidate_job_id = str(uuid4())
+    claimed = try_claim_buffer_job(source=source, user_id=user_id, job_id=candidate_job_id)
+
+    if claimed:
+        try:
+            process_buffered_session.apply_async(
+                args=[source, user_id],
+                countdown=settings.smart_buffer_seconds,
+                task_id=candidate_job_id,
+            )
+        except Exception:  # noqa: BLE001
+            clear_buffer_job(source=source, user_id=user_id)
+            raise
+        return candidate_job_id, True
+
+    existing_job = get_buffer_job_id(source=source, user_id=user_id)
+    if existing_job:
+        return existing_job, False
+
+    # Rare race fallback when a claimed key expires before read.
+    fallback_job_id = str(uuid4())
+    claimed_fallback = try_claim_buffer_job(source=source, user_id=user_id, job_id=fallback_job_id)
+    if claimed_fallback:
+        try:
+            process_buffered_session.apply_async(
+                args=[source, user_id],
+                countdown=settings.smart_buffer_seconds,
+                task_id=fallback_job_id,
+            )
+        except Exception:  # noqa: BLE001
+            clear_buffer_job(source=source, user_id=user_id)
+            raise
+        return fallback_job_id, True
+
+    existing_job = get_buffer_job_id(source=source, user_id=user_id)
+    if existing_job:
+        return existing_job, False
+
+    raise HTTPException(status_code=500, detail="buffer_scheduler_unavailable")
+
+
 @app.post("/webhooks/inbox", response_model=AcceptedResponse, status_code=202)
 def ingest_event(event: IngestionEvent) -> AcceptedResponse:
-    job = process_ingestion_event.delay(event.model_dump(mode="json"))
-    return AcceptedResponse(job_id=job.id)
+    source_message_id = extract_source_message_id(event)
+    payload = event.model_dump(mode="json")
+    payload["source_message_id"] = source_message_id
+
+    inserted = register_message_event(
+        source=event.source,
+        source_message_id=source_message_id,
+        user_id=event.user_id,
+        payload=payload,
+    )
+    if not inserted:
+        existing_job = find_job_id(source=event.source, source_message_id=source_message_id)
+        return AcceptedResponse(status="duplicate", job_id=existing_job, reason="duplicate_message")
+
+    blocked_reason = self_message_reason(event)
+    if blocked_reason:
+        return AcceptedResponse(status="ignored", reason=blocked_reason)
+
+    if settings.smart_buffering_enabled and event.source == "whatsapp":
+        append_buffered_event(source=event.source, user_id=event.user_id, event=payload)
+        job_id, first_schedule = _schedule_buffered_job(source=event.source, user_id=event.user_id)
+        map_job_to_message(source=event.source, source_message_id=source_message_id, job_id=job_id)
+        return AcceptedResponse(
+            status="processing",
+            job_id=job_id,
+            reason="buffer_scheduled" if first_schedule else "buffer_appended",
+        )
+
+    job = process_ingestion_event.delay(payload)
+    map_job_to_message(source=event.source, source_message_id=source_message_id, job_id=job.id)
+    return AcceptedResponse(status="processing", job_id=job.id, reason="direct_dispatch")
 
 
 @app.get("/jobs/{job_id}", response_model=JobStatusResponse)

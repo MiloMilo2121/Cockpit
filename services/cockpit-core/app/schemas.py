@@ -13,8 +13,9 @@ class IngestionEvent(BaseModel):
 
 
 class AcceptedResponse(BaseModel):
-    status: Literal["processing"] = "processing"
-    job_id: str
+    status: Literal["processing", "duplicate", "ignored"] = "processing"
+    job_id: str | None = None
+    reason: str | None = None
 
 
 class JobStatusResponse(BaseModel):

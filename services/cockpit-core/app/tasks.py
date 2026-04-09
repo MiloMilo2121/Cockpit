@@ -5,6 +5,7 @@ from typing import Any, Dict
 import httpx
 from celery import Task
 
+from app.buffer_store import consume_buffered_events
 from app.celery_app import celery_app
 from app.config import settings
 
@@ -87,8 +88,7 @@ def _call_ollama(prompt: str) -> str:
     return str(payload.get("response", ""))
 
 
-@celery_app.task(bind=True, base=RetryableTask, name="cockpit.process_ingestion_event")
-def process_ingestion_event(self: RetryableTask, event: Dict[str, Any]) -> Dict[str, Any]:
+def _execute_orchestration(event: Dict[str, Any]) -> Dict[str, Any]:
     message = str(event.get("message", "")).strip()
     if not message:
         return {
@@ -122,3 +122,40 @@ def process_ingestion_event(self: RetryableTask, event: Dict[str, Any]) -> Dict[
         "source": event.get("source"),
         "result": restored_output,
     }
+
+
+@celery_app.task(bind=True, base=RetryableTask, name="cockpit.process_ingestion_event")
+def process_ingestion_event(self: RetryableTask, event: Dict[str, Any]) -> Dict[str, Any]:
+    return _execute_orchestration(event)
+
+
+@celery_app.task(bind=True, base=RetryableTask, name="cockpit.process_buffered_session")
+def process_buffered_session(self: RetryableTask, source: str, user_id: str) -> Dict[str, Any]:
+    buffered_events = consume_buffered_events(source=source, user_id=user_id)
+    if not buffered_events:
+        return {"status": "noop", "reason": "buffer_empty", "source": source, "user_id": user_id}
+
+    messages = [
+        str(item.get("message", "")).strip()
+        for item in buffered_events
+        if str(item.get("message", "")).strip()
+    ]
+    if not messages:
+        return {"status": "noop", "reason": "buffer_no_text", "source": source, "user_id": user_id}
+
+    source_ids = [
+        str(item.get("source_message_id", "")).strip()
+        for item in buffered_events
+        if str(item.get("source_message_id", "")).strip()
+    ]
+
+    aggregated_event: Dict[str, Any] = {
+        "source": source,
+        "user_id": user_id,
+        "message": "\n".join(messages),
+        "metadata": {
+            "buffered_count": len(messages),
+            "source_message_ids": source_ids,
+        },
+    }
+    return _execute_orchestration(aggregated_event)

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
 
     cockpit_worker_concurrency: int = 4
+    smart_buffering_enabled: bool = True
+    smart_buffer_seconds: int = 12
+    smart_buffer_ttl_seconds: int = 120
+    loop_block_from_me: bool = True
 
     @property
     def redis_broker_url(self) -> str:

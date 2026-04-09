@@ -45,6 +45,7 @@ cp .env.example .env
 - `N8N_ENCRYPTION_KEY`
 - `N8N_BASIC_AUTH_PASSWORD`
 - `OPENROUTER_API_KEY` (opzionale ma consigliata)
+- `SMART_BUFFER_SECONDS` (default 12)
 - `QDRANT_API_KEY`
 - `EVOLUTION_API_KEY`
 - `PRIVACY_SALT`
@@ -84,11 +85,37 @@ curl -X POST https://<DOMAIN_API>/webhooks/inbox \
   }'
 ```
 
+Esempio WhatsApp con dedup id:
+
+```bash
+curl -X POST https://<DOMAIN_API>/webhooks/inbox \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "whatsapp",
+    "user_id": "393331112223",
+    "message": "parte 1 del messaggio",
+    "metadata": {
+      "message_id": "wamid.HBgLMzkzMzMxMTEyMjIzFQIAEhgg...",
+      "fromMe": false
+    }
+  }'
+```
+
 2. Controlla stato job:
 
 ```bash
 curl https://<DOMAIN_API>/jobs/<JOB_ID>
 ```
+
+## Step 2 attivo (buffer + dedup + loop prevention)
+
+- Smart buffering per `source=whatsapp` su Redis.
+- Dedup idempotente su PostgreSQL (`source + source_message_id`).
+- Loop prevention: eventi `fromMe=true` o `direction=outbound` vengono ignorati.
+- Risposte webhook possibili:
+  - `processing` con `job_id`
+  - `duplicate` con `job_id` precedente (se disponibile)
+  - `ignored` per self-message
 
 ## Pattern operativi consigliati
 
