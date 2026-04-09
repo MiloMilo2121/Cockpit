@@ -6,6 +6,7 @@
 - `make healthcheck`
 - `curl -fsS https://<DOMAIN_API>/ops/metrics`
 - `make logs-watcher` (controllo ingest file automatico)
+- `curl -fsS https://<DOMAIN_API>/integrations/google/accounts`
 
 ## 2) Backups
 
@@ -64,7 +65,47 @@ make logs-watcher
 docker compose logs -f cockpit-api cockpit-worker
 ```
 
-## 6) Security baseline
+## 6) Google OAuth + sync (Step 7)
+
+1. Configura in `.env`:
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_OAUTH_REDIRECT_URL` (`https://<DOMAIN_API>/google/callback`)
+
+2. Richiedi auth URL:
+
+```bash
+curl -X POST https://<DOMAIN_API>/integrations/google/auth-url \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"marco","redirect_uri":"https://<DOMAIN_API>/google/callback"}'
+```
+
+3. Dopo il redirect Google, scambia il `code`:
+
+```bash
+curl -X POST https://<DOMAIN_API>/integrations/google/exchange \
+  -H "Content-Type: application/json" \
+  -d '{"state":"<STATE>","code":"<CODE>","redirect_uri":"https://<DOMAIN_API>/google/callback"}'
+```
+
+Se usi `https://<DOMAIN_API>/google/callback` come redirect URI, il cockpit esegue exchange e bootstrap sync anche direttamente via callback GET.
+
+4. Verifica account e cursori:
+
+```bash
+curl -fsS https://<DOMAIN_API>/integrations/google/accounts
+curl -fsS https://<DOMAIN_API>/integrations/google/accounts/<ACCOUNT_ID>/cursors
+```
+
+5. Lancia sync manuale quando serve:
+
+```bash
+curl -X POST https://<DOMAIN_API>/integrations/google/accounts/<ACCOUNT_ID>/sync \
+  -H "Content-Type: application/json" \
+  -d '{"providers":["gmail","drive","calendar"],"bootstrap":false}'
+```
+
+## 7) Security baseline
 
 - Keep `.env` off git.
 - Rotate API keys monthly.

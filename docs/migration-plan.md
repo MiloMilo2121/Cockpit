@@ -56,3 +56,18 @@
 - Ingest automatico su RAG (`POST /rag/documents/ingest`) con metadati file e categoria.
 - Estrazione task dal contenuto e invio opzionale a `POST /webhooks/inbox`.
 - Persistenza stato dedup nel volume `file_watcher_state`.
+
+## Step 7 (completato)
+
+- OAuth Google multi-account implementato in `cockpit-core`.
+- Tabelle aggiunte:
+  - `cockpit_google_oauth_states`
+  - `cockpit_google_accounts`
+  - `cockpit_sync_cursors`
+  - `cockpit_raw_events`
+  - `cockpit_external_documents`
+- Sync engine incrementale aggiunto:
+  - Gmail via `historyId`
+  - Drive via `pageToken`
+  - Calendar via `syncToken`
+- Endpoint aggiunti per auth, exchange, list account, sync manuale, cursori ed eventi recenti.

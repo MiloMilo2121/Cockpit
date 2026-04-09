@@ -8,6 +8,7 @@
 - Messaggistica interna: `Redis`
 - Memoria semantica: `Qdrant`
 - Canale WhatsApp: `Evolution API`
+- Connettori Google: `Gmail`, `Drive`, `Calendar` via OAuth multi-account
 - Fallback LLM locale: `Ollama`
 - Ingest file locale: `file-watcher` (watchdog + classificazione + push RAG)
 - Privacy layer: `privacy-node` (redazione/restore PII)
@@ -97,3 +98,15 @@ Regole pratiche:
 - Sink:
   - ingest asincrono su `POST /rag/documents/ingest`
   - opzionale evento operativo su `POST /webhooks/inbox`
+
+## 10) Google sync canonico (Step 7)
+
+- `OAuth state` persistito su PostgreSQL.
+- `Google accounts` multi-account per stesso `user_id` logico.
+- `Raw events` immutabili per audit e provenance.
+- `Sync cursors` separati per provider:
+  - Gmail: `history_id`
+  - Drive: `page_token`
+  - Calendar: `sync_token:<calendar_id>`
+- `External documents` normalizzati e reindicizzati in RAG con replace per `document_id`.
+- Sync eseguita via task Celery, non nel thread HTTP.

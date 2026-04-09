@@ -31,6 +31,7 @@ class RagIngestRequest(BaseModel):
     source: str = Field(..., min_length=1)
     content: str = Field(..., min_length=1)
     chunking_strategy: Literal["recursive", "semantic", "agentic"] = "semantic"
+    replace_existing_document: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -45,3 +46,75 @@ class RagQueryResponse(BaseModel):
     query: str
     retrieval: Dict[str, Any] = Field(default_factory=dict)
     results: list[Dict[str, Any]] = Field(default_factory=list)
+
+
+class GoogleAuthUrlRequest(BaseModel):
+    user_id: str = Field(..., min_length=1)
+    redirect_uri: str | None = None
+    scopes: list[str] | None = None
+
+
+class GoogleAuthUrlResponse(BaseModel):
+    status: Literal["ready"] = "ready"
+    state: str
+    auth_url: str
+    scopes: list[str] = Field(default_factory=list)
+
+
+class GoogleOAuthExchangeRequest(BaseModel):
+    state: str = Field(..., min_length=8)
+    code: str = Field(..., min_length=8)
+    redirect_uri: str | None = None
+
+
+class GoogleAccountResponse(BaseModel):
+    id: int
+    user_id: str
+    provider: str
+    google_email: str
+    google_subject: str | None = None
+    display_name: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+    status: str
+    token_expiry: str | None = None
+    has_refresh_token: bool = False
+    created_at: str
+    updated_at: str
+
+
+class GoogleOAuthExchangeResponse(BaseModel):
+    status: Literal["processing"] = "processing"
+    account: GoogleAccountResponse
+    job_id: str | None = None
+    reason: str | None = None
+
+
+class GoogleAccountsResponse(BaseModel):
+    count: int
+    accounts: list[GoogleAccountResponse] = Field(default_factory=list)
+
+
+class GoogleManualSyncRequest(BaseModel):
+    providers: list[Literal["gmail", "drive", "calendar"]] = Field(
+        default_factory=lambda: ["gmail", "drive", "calendar"]
+    )
+    bootstrap: bool = False
+
+
+class GoogleSyncCursorResponse(BaseModel):
+    provider: str
+    cursor_key: str
+    cursor_value: str
+    updated_at: str
+
+
+class GoogleRawEventResponse(BaseModel):
+    event_uid: str
+    provider: str
+    resource_type: str
+    external_id: str
+    event_type: str
+    source_cursor: str
+    occurred_at: str | None = None
+    created_at: str
+    payload: Dict[str, Any] = Field(default_factory=dict)

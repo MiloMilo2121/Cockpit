@@ -11,6 +11,7 @@ Runtime completamente code-first: `cockpit-core` (`FastAPI + Celery`) con pipeli
 - `Redis 7` come broker/caching
 - `Qdrant` per retrieval vettoriale
 - `Evolution API v2` per integrazione WhatsApp
+- `Google OAuth + Gmail + Drive + Calendar` per memoria multi-account
 - `Ollama` per fallback locale
 - `file-watcher` per ingest automatico file locali -> RAG + task extraction
 - `Caddy` per reverse proxy + TLS automatico
@@ -42,6 +43,9 @@ cp .env.example .env
 - `REDIS_PASSWORD`
 - `OPENROUTER_API_KEY` (obbligatoria per Step 3)
 - `OPENROUTER_FREE_MODELS` (lista modelli gratuiti OpenRouter, separati da virgola)
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_OAUTH_REDIRECT_URL` (es. `https://<DOMAIN_API>/google/callback`)
 - `SMART_BUFFER_SECONDS` (default 12)
 - `FILE_WATCHER_ALLOWED_EXTENSIONS` (estensioni indicizzate in Step 6)
 - `RAG_COLLECTION_NAME` (default `life_cockpit_memory`)
@@ -167,6 +171,49 @@ Esempio rapido:
 ```bash
 echo "- TODO: pagare F24 entro venerdi" > data/inbox/finanza_oggi.md
 make logs-watcher
+```
+
+## Step 7 completato (Google multi-account sync foundation)
+
+- OAuth Google multi-account con endpoint:
+  - `POST /integrations/google/auth-url`
+  - `POST /integrations/google/exchange`
+- Persistenza canonica in PostgreSQL:
+  - account Google
+  - stati OAuth
+  - cursori di sync incrementale
+  - raw events
+  - documenti esterni normalizzati
+- Sync manuale/bootstrapped via Celery:
+  - Gmail (`historyId`)
+  - Drive (`pageToken`)
+  - Calendar (`syncToken`)
+- Endpoint operativi:
+  - `GET /integrations/google/accounts`
+  - `POST /integrations/google/accounts/{account_id}/sync`
+  - `GET /integrations/google/accounts/{account_id}/cursors`
+  - `GET /integrations/google/accounts/{account_id}/events`
+
+Esempio auth URL:
+
+```bash
+curl -X POST https://<DOMAIN_API>/integrations/google/auth-url \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "marco",
+    "redirect_uri": "https://<DOMAIN_API>/google/callback"
+  }'
+```
+
+Esempio sync manuale:
+
+```bash
+curl -X POST https://<DOMAIN_API>/integrations/google/accounts/1/sync \
+  -H "Content-Type: application/json" \
+  -d '{
+    "providers": ["gmail", "drive", "calendar"],
+    "bootstrap": false
+  }'
 ```
 
 Esempio ingest:

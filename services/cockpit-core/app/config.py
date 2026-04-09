@@ -49,6 +49,24 @@ class Settings(BaseSettings):
     circuit_breaker_open_seconds: int = 90
     dead_letter_enabled: bool = True
 
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_oauth_redirect_url: str = ""
+    google_oauth_scopes: str = (
+        "openid,email,profile,"
+        "https://www.googleapis.com/auth/gmail.readonly,"
+        "https://www.googleapis.com/auth/drive.readonly,"
+        "https://www.googleapis.com/auth/calendar.readonly"
+    )
+    google_sync_http_timeout_seconds: int = 45
+    google_gmail_bootstrap_max_results: int = 100
+    google_gmail_history_page_size: int = 100
+    google_drive_bootstrap_page_size: int = 50
+    google_drive_download_max_bytes: int = 1500000
+    google_calendar_bootstrap_past_days: int = 90
+    google_calendar_bootstrap_future_days: int = 180
+    google_calendar_bootstrap_page_size: int = 250
+
     @property
     def redis_broker_url(self) -> str:
         if self.redis_password:
@@ -69,6 +87,11 @@ class Settings(BaseSettings):
             parsed = [self.openrouter_model]
         free_only = [item for item in parsed if item.endswith(":free")]
         return free_only or ["qwen/qwen3-32b:free"]
+
+    @property
+    def google_scopes(self) -> list[str]:
+        raw = [item.strip() for item in self.google_oauth_scopes.split(",")]
+        return [item for item in raw if item]
 
 
 settings = Settings()

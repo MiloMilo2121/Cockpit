@@ -51,6 +51,26 @@ def upsert_points(points: list[dict[str, Any]]) -> None:
         raise RuntimeError(f"qdrant_upsert_failed:{response.status_code}:{response.text}")
 
 
+def delete_points_by_document_id(document_id: str) -> None:
+    ensure_rag_collection()
+    headers = _headers()
+    url = f"{_collection_url()}/points/delete"
+    body = {
+        "filter": {
+            "must": [
+                {
+                    "key": "document_id",
+                    "match": {"value": document_id},
+                }
+            ]
+        }
+    }
+
+    response = httpx.post(url, headers=headers, json=body, params={"wait": "true"}, timeout=30.0)
+    if response.status_code not in {200, 201}:
+        raise RuntimeError(f"qdrant_delete_failed:{response.status_code}:{response.text}")
+
+
 def search_dense(*, vector: list[float], limit: int) -> list[dict[str, Any]]:
     ensure_rag_collection()
     headers = _headers()

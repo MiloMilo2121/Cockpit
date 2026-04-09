@@ -10,6 +10,7 @@ from app.buffer_store import consume_buffered_events
 from app.circuit_breaker import is_open, record_failure, record_success
 from app.config import settings
 from app.dead_letter import push_dead_letter
+from app.google_sync import sync_google_account_pipeline
 from app.metrics import increment_metric
 from app.rag_pipeline import ingest_document_pipeline
 
@@ -243,4 +244,37 @@ def rag_ingest_document(self: RetryableTask, request: Dict[str, Any]) -> Dict[st
             "status": "failed",
             "reason": "rag_ingest_failure",
             "error": str(exc),
+        }
+
+
+@celery_app.task(bind=True, base=RetryableTask, name="cockpit.sync_google_account")
+def sync_google_account(
+    self: RetryableTask,
+    account_id: int,
+    providers: list[str] | None = None,
+    bootstrap: bool = False,
+) -> Dict[str, Any]:
+    try:
+        return sync_google_account_pipeline(
+            account_id=int(account_id),
+            providers=providers,
+            bootstrap=bootstrap,
+        )
+    except Exception as exc:  # noqa: BLE001
+        push_dead_letter(
+            stage="google_sync_task",
+            reason="google_sync_failure",
+            payload={
+                "account_id": int(account_id),
+                "providers": providers or ["gmail", "drive", "calendar"],
+                "bootstrap": bool(bootstrap),
+            },
+            error=str(exc),
+        )
+        increment_metric("google_sync_failure_total")
+        return {
+            "status": "failed",
+            "reason": "google_sync_failure",
+            "error": str(exc),
+            "account_id": int(account_id),
         }

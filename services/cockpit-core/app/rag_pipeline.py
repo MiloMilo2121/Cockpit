@@ -11,7 +11,7 @@ from app.metrics import increment_metric
 from app.openrouter_client import OpenRouterError, chat_completion
 from app.rag_chunking import chunk_document
 from app.rag_embeddings import embed_text, tokenize_text
-from app.rag_store import search_dense, upsert_points
+from app.rag_store import delete_points_by_document_id, search_dense, upsert_points
 
 
 def _utc_now_iso() -> str:
@@ -60,6 +60,7 @@ def ingest_document_pipeline(request: dict[str, Any]) -> dict[str, Any]:
     source = _string(request.get("source"), "unknown")
     content = _string(request.get("content"))
     strategy = _string(request.get("chunking_strategy"), "recursive").lower()
+    replace_existing_document = bool(request.get("replace_existing_document", False))
 
     if not content:
         increment_metric("rag_ingest_rejected_total")
@@ -112,6 +113,9 @@ def ingest_document_pipeline(request: dict[str, Any]) -> dict[str, Any]:
     if not points:
         increment_metric("rag_ingest_rejected_total")
         return {"status": "rejected", "reason": "empty_chunks", "document_id": document_id}
+
+    if replace_existing_document:
+        delete_points_by_document_id(document_id)
 
     upsert_points(points)
 

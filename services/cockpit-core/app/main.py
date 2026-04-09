@@ -18,25 +18,45 @@ from app.dead_letter import push_dead_letter
 from app.db import (
     ensure_schema,
     find_job_id,
+    get_google_account,
+    list_google_accounts,
+    list_recent_raw_events,
+    list_sync_cursors,
     list_recent_dead_letter_events,
     map_job_to_message,
     register_message_event,
 )
 from app.event_utils import extract_source_message_id, self_message_reason
+from app.google_auth import exchange_google_auth_code, prepare_google_auth_url
+from app.google_client import GoogleAuthError
 from app.metrics import get_metrics_snapshot, increment_metric
 from app.rag_pipeline import query_rag_pipeline
 from app.rag_store import ensure_rag_collection
 from app.schemas import (
     AcceptedResponse,
+    GoogleAccountResponse,
+    GoogleAccountsResponse,
+    GoogleAuthUrlRequest,
+    GoogleAuthUrlResponse,
+    GoogleManualSyncRequest,
+    GoogleOAuthExchangeRequest,
+    GoogleOAuthExchangeResponse,
+    GoogleRawEventResponse,
+    GoogleSyncCursorResponse,
     IngestionEvent,
     JobStatusResponse,
     RagIngestRequest,
     RagQueryRequest,
     RagQueryResponse,
 )
-from app.tasks import process_buffered_session, process_ingestion_event, rag_ingest_document as rag_ingest_document_task
+from app.tasks import (
+    process_buffered_session,
+    process_ingestion_event,
+    rag_ingest_document as rag_ingest_document_task,
+    sync_google_account as sync_google_account_task,
+)
 
-app = FastAPI(title="cockpit-core-api", version="0.3.0")
+app = FastAPI(title="cockpit-core-api", version="0.4.0")
 
 
 @app.on_event("startup")
@@ -209,3 +229,100 @@ def ops_dead_letter(limit: int = 50) -> dict[str, object]:
         "count": len(events),
         "events": events,
     }
+
+
+@app.post("/integrations/google/auth-url", response_model=GoogleAuthUrlResponse)
+def google_auth_url(request: GoogleAuthUrlRequest) -> GoogleAuthUrlResponse:
+    try:
+        payload = prepare_google_auth_url(
+            user_id=request.user_id,
+            redirect_uri=request.redirect_uri,
+            scopes=request.scopes,
+        )
+    except GoogleAuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return GoogleAuthUrlResponse(
+        state=str(payload["state"]),
+        auth_url=str(payload["auth_url"]),
+        scopes=payload.get("scopes", []) if isinstance(payload.get("scopes"), list) else [],
+    )
+
+
+@app.post("/integrations/google/exchange", response_model=GoogleOAuthExchangeResponse)
+def google_exchange(request: GoogleOAuthExchangeRequest) -> GoogleOAuthExchangeResponse:
+    try:
+        account = exchange_google_auth_code(
+            state=request.state,
+            code=request.code,
+            redirect_uri=request.redirect_uri,
+        )
+    except GoogleAuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    job = sync_google_account_task.delay(int(account["id"]), ["gmail", "drive", "calendar"], True)
+    response_account = GoogleAccountResponse(**{key: value for key, value in account.items() if key != "access_token" and key != "refresh_token"})
+    return GoogleOAuthExchangeResponse(
+        account=response_account,
+        job_id=job.id,
+        reason="google_bootstrap_sync_queued",
+    )
+
+
+@app.get("/google/callback", response_model=GoogleOAuthExchangeResponse)
+def google_callback(state: str, code: str) -> GoogleOAuthExchangeResponse:
+    try:
+        account = exchange_google_auth_code(
+            state=state,
+            code=code,
+            redirect_uri=None,
+        )
+    except GoogleAuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    job = sync_google_account_task.delay(int(account["id"]), ["gmail", "drive", "calendar"], True)
+    response_account = GoogleAccountResponse(**{key: value for key, value in account.items() if key != "access_token" and key != "refresh_token"})
+    return GoogleOAuthExchangeResponse(
+        account=response_account,
+        job_id=job.id,
+        reason="google_bootstrap_sync_queued",
+    )
+
+
+@app.get("/integrations/google/accounts", response_model=GoogleAccountsResponse)
+def google_accounts(user_id: str | None = None) -> GoogleAccountsResponse:
+    accounts = list_google_accounts(user_id=user_id)
+    return GoogleAccountsResponse(
+        count=len(accounts),
+        accounts=[GoogleAccountResponse(**account) for account in accounts],
+    )
+
+
+@app.post("/integrations/google/accounts/{account_id}/sync", response_model=AcceptedResponse, status_code=202)
+def google_sync(account_id: int, request: GoogleManualSyncRequest) -> AcceptedResponse:
+    account = get_google_account(account_id, include_tokens=False)
+    if not account:
+        raise HTTPException(status_code=404, detail="google_account_not_found")
+
+    job = sync_google_account_task.delay(account_id, request.providers, request.bootstrap)
+    return AcceptedResponse(status="processing", job_id=job.id, reason="google_sync_queued")
+
+
+@app.get("/integrations/google/accounts/{account_id}/cursors", response_model=list[GoogleSyncCursorResponse])
+def google_cursors(account_id: int) -> list[GoogleSyncCursorResponse]:
+    account = get_google_account(account_id, include_tokens=False)
+    if not account:
+        raise HTTPException(status_code=404, detail="google_account_not_found")
+
+    cursors = list_sync_cursors(account_id=account_id)
+    return [GoogleSyncCursorResponse(**cursor) for cursor in cursors]
+
+
+@app.get("/integrations/google/accounts/{account_id}/events", response_model=list[GoogleRawEventResponse])
+def google_events(account_id: int, limit: int = 50) -> list[GoogleRawEventResponse]:
+    account = get_google_account(account_id, include_tokens=False)
+    if not account:
+        raise HTTPException(status_code=404, detail="google_account_not_found")
+
+    events = list_recent_raw_events(account_id=account_id, limit=limit)
+    return [GoogleRawEventResponse(**event) for event in events]
