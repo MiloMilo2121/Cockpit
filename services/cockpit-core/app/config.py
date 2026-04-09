@@ -27,6 +27,17 @@ class Settings(BaseSettings):
 
     qdrant_url: str = "http://qdrant:6333"
     qdrant_api_key: str = ""
+    rag_collection_name: str = "life_cockpit_memory"
+    rag_vector_size: int = 384
+    rag_chunk_size_chars: int = 1100
+    rag_chunk_overlap_chars: int = 180
+    rag_semantic_similarity_threshold: float = 0.72
+    rag_default_top_k: int = 6
+    rag_dense_weight: float = 0.7
+    rag_sparse_weight: float = 0.3
+    rag_agentic_chunk_max_chars: int = 16000
+    rag_query_candidates: int = 24
+    rag_rerank_candidates: int = 12
 
     cockpit_worker_concurrency: int = 4
     smart_buffering_enabled: bool = True
@@ -57,7 +68,7 @@ class Settings(BaseSettings):
         if not parsed:
             parsed = [self.openrouter_model]
         free_only = [item for item in parsed if item.endswith(":free")]
-        return free_only or [self.openrouter_model]
+        return free_only or ["qwen/qwen3-32b:free"]
 
 
 settings = Settings()

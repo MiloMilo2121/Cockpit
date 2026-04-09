@@ -47,6 +47,8 @@ cp .env.example .env
 - `OPENROUTER_API_KEY` (obbligatoria per Step 3)
 - `OPENROUTER_FREE_MODELS` (lista modelli gratuiti OpenRouter, separati da virgola)
 - `SMART_BUFFER_SECONDS` (default 12)
+- `RAG_COLLECTION_NAME` (default `life_cockpit_memory`)
+- `RAG_VECTOR_SIZE` (default `384`)
 - `QDRANT_API_KEY`
 - `EVOLUTION_API_KEY`
 - `PRIVACY_SALT`
@@ -129,6 +131,45 @@ curl https://<DOMAIN_API>/jobs/<JOB_ID>
 - Endpoint operativi:
   - `GET /ops/metrics`
   - `GET /ops/dead-letter?limit=50`
+
+## Step 4 attivo (RAG completo)
+
+- Ingest documenti asincrono: `POST /rag/documents/ingest`
+- Query RAG sincrona: `POST /rag/query`
+- Chunking supportato:
+  - `recursive`
+  - `semantic`
+  - `agentic` (OpenRouter free, fallback automatico su semantic)
+- Retrieval ibrido:
+  - dense (Qdrant)
+  - sparse keyword overlap
+  - rerank finale OpenRouter free
+
+Esempio ingest:
+
+```bash
+curl -X POST https://<DOMAIN_API>/rag/documents/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Piano Q2",
+    "source": "notion",
+    "content": "Testo lungo del documento...",
+    "chunking_strategy": "semantic",
+    "metadata": {"workspace": "life-cockpit"}
+  }'
+```
+
+Esempio query:
+
+```bash
+curl -X POST https://<DOMAIN_API>/rag/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Quali sono le priorità operative del Q2?",
+    "top_k": 5,
+    "rerank": true
+  }'
+```
 
 ## Pattern operativi consigliati
 

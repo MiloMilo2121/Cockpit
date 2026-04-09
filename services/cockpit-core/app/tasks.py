@@ -11,6 +11,7 @@ from app.circuit_breaker import is_open, record_failure, record_success
 from app.config import settings
 from app.dead_letter import push_dead_letter
 from app.metrics import increment_metric
+from app.rag_pipeline import ingest_document_pipeline
 
 
 class RetryableTask(Task):
@@ -224,3 +225,22 @@ def process_buffered_session(self: RetryableTask, source: str, user_id: str) -> 
         },
     }
     return _execute_orchestration(aggregated_event)
+
+
+@celery_app.task(bind=True, base=RetryableTask, name="cockpit.rag_ingest_document")
+def rag_ingest_document(self: RetryableTask, request: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return ingest_document_pipeline(request)
+    except Exception as exc:  # noqa: BLE001
+        push_dead_letter(
+            stage="rag_ingest_task",
+            reason="rag_ingest_failure",
+            payload=request if isinstance(request, dict) else {"raw": str(request)},
+            error=str(exc),
+        )
+        increment_metric("rag_ingest_failure_total")
+        return {
+            "status": "failed",
+            "reason": "rag_ingest_failure",
+            "error": str(exc),
+        }

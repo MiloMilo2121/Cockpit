@@ -56,14 +56,18 @@ Nota migrazione: `n8n` resta attivo come fallback legacy finché i workflow crit
 
 ## 6) RAG e qualità retrieval
 
-- Strategia consigliata:
-  - Ingest rapidi: chunking ricorsivo
-  - Documenti densi: semantic/agentic chunking
-- Ogni chunk deve includere metadati minimi:
+- Ingest:
+  - endpoint `POST /rag/documents/ingest` (async)
+  - chunking selezionabile: `recursive`, `semantic`, `agentic`
+- Metadati per chunk:
   - `document_id`, `document_title`, `timestamp`, `source`, `confidence_score`
-- Retrieval consigliato:
-  - dense + sparse (ibrido)
-  - reranking finale prima del prompt generation
+- Retrieval:
+  - dense search su Qdrant
+  - sparse score su overlap keyword
+  - fusione ibrida (`RAG_DENSE_WEIGHT`, `RAG_SPARSE_WEIGHT`)
+  - rerank OpenRouter free su top candidati
+- Query:
+  - endpoint `POST /rag/query` (sync) con `top_k` e `rerank`
 
 ## 7) Scheduling predittivo
 

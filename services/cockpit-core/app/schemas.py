@@ -23,3 +23,25 @@ class JobStatusResponse(BaseModel):
     state: str
     result: Dict[str, Any] | None = None
     error: str | None = None
+
+
+class RagIngestRequest(BaseModel):
+    document_id: str | None = None
+    title: str = Field(..., min_length=1)
+    source: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1)
+    chunking_strategy: Literal["recursive", "semantic", "agentic"] = "semantic"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RagQueryRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    top_k: int = Field(default=6, ge=1, le=50)
+    rerank: bool = True
+
+
+class RagQueryResponse(BaseModel):
+    status: str
+    query: str
+    retrieval: Dict[str, Any] = Field(default_factory=dict)
+    results: list[Dict[str, Any]] = Field(default_factory=list)

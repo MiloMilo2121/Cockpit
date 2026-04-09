@@ -14,6 +14,7 @@ from app.buffer_store import (
 from app.celery_app import celery_app
 from app.circuit_breaker import get_state as get_circuit_breaker_state
 from app.config import settings
+from app.dead_letter import push_dead_letter
 from app.db import (
     ensure_schema,
     find_job_id,
@@ -23,8 +24,17 @@ from app.db import (
 )
 from app.event_utils import extract_source_message_id, self_message_reason
 from app.metrics import get_metrics_snapshot, increment_metric
-from app.schemas import AcceptedResponse, IngestionEvent, JobStatusResponse
-from app.tasks import process_buffered_session, process_ingestion_event
+from app.rag_pipeline import query_rag_pipeline
+from app.rag_store import ensure_rag_collection
+from app.schemas import (
+    AcceptedResponse,
+    IngestionEvent,
+    JobStatusResponse,
+    RagIngestRequest,
+    RagQueryRequest,
+    RagQueryResponse,
+)
+from app.tasks import process_buffered_session, process_ingestion_event, rag_ingest_document as rag_ingest_document_task
 
 app = FastAPI(title="cockpit-core-api", version="0.3.0")
 
@@ -32,6 +42,11 @@ app = FastAPI(title="cockpit-core-api", version="0.3.0")
 @app.on_event("startup")
 def startup() -> None:
     ensure_schema()
+    try:
+        ensure_rag_collection()
+    except Exception:  # noqa: BLE001
+        # Do not fail API startup if Qdrant is temporarily unavailable.
+        pass
 
 
 @app.get("/health")
@@ -141,6 +156,40 @@ def get_job(job_id: str) -> JobStatusResponse:
         return JobStatusResponse(status="failed", state=state, error=str(result.result))
 
     raise HTTPException(status_code=500, detail=f"Unexpected task state: {state}")
+
+
+@app.post("/rag/documents/ingest", response_model=AcceptedResponse, status_code=202)
+def rag_ingest_document(request: RagIngestRequest) -> AcceptedResponse:
+    increment_metric("rag_ingest_endpoint_hits_total")
+    job = rag_ingest_document_task.delay(request.model_dump(mode="json"))
+    return AcceptedResponse(status="processing", job_id=job.id, reason="rag_ingest_queued")
+
+
+@app.post("/rag/query", response_model=RagQueryResponse)
+def rag_query(request: RagQueryRequest) -> RagQueryResponse:
+    top_k = request.top_k or int(settings.rag_default_top_k)
+
+    try:
+        payload = query_rag_pipeline(query=request.query, top_k=top_k, rerank=request.rerank)
+    except Exception as exc:  # noqa: BLE001
+        push_dead_letter(
+            stage="rag_query_endpoint",
+            reason="rag_query_failure",
+            payload=request.model_dump(mode="json"),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail="rag_query_failure") from exc
+
+    status = str(payload.get("status", "ok"))
+    if status == "rejected":
+        raise HTTPException(status_code=400, detail=str(payload.get("reason", "invalid_query")))
+
+    return RagQueryResponse(
+        status=status,
+        query=str(payload.get("query", request.query)),
+        retrieval=payload.get("retrieval", {}) if isinstance(payload.get("retrieval"), dict) else {},
+        results=payload.get("results", []) if isinstance(payload.get("results"), list) else [],
+    )
 
 
 @app.get("/ops/metrics")

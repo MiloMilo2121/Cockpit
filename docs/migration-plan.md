@@ -24,10 +24,21 @@
 - Dead-letter queue persistita su PostgreSQL (`cockpit_dead_letter_events`).
 - Metriche operative esposte via endpoint `/ops/metrics` e dead-letter via `/ops/dead-letter`.
 
-## Step 4
+## Step 4 (completato)
 
-- Migrare pipeline RAG completa (chunking, indexing, retrieval, rerank).
-- Spegnimento progressivo dei workflow n8n sostituiti.
+- Pipeline RAG code-first implementata con strategie di chunking:
+  - `recursive`
+  - `semantic`
+  - `agentic` (via OpenRouter free, con fallback automatico)
+- Indicizzazione su Qdrant con metadati (`document_id`, `document_title`, `timestamp`, `source`, `confidence_score`).
+- Retrieval ibrido:
+  - dense search su vettori
+  - scoring sparse per overlap keyword
+  - rerank finale via OpenRouter free (quando disponibile)
+- Endpoint attivi:
+  - `POST /rag/documents/ingest` (job asincrono)
+  - `POST /rag/query` (query sincrona)
+- Spegnimento progressivo n8n: resta da disattivare i workflow legacy già sostituiti.
 
 ## Step 5
 
