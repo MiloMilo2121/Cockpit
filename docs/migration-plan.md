@@ -24,6 +24,10 @@
   - `get_calendar_context`
   - `search_qdrant_tasks`
   - `query_raw_events`
+- Strict tool schema + validazione Pydantic degli argomenti tool.
+- Hard cap del loop ReAct a 4 turni tool consecutivi.
+- Reflection gate JSON sui messaggi WhatsApp proattivi.
+- Cache semantica Redis per evitare chiamate OpenRouter duplicate entro 5 minuti.
 - Circuit breaker su integrazione OpenRouter con soglia errori e finestra di apertura.
 - Dead-letter queue persistita su PostgreSQL (`cockpit_dead_letter_events`).
 - Metriche operative esposte via endpoint `/ops/metrics` e dead-letter via `/ops/dead-letter`.
@@ -89,5 +93,7 @@
 - Beat schedule attivo:
   - briefing mattutino alle 07:30
   - correzione di meta giornata alle 14:00
+  - anomaly scan dead-letter ogni 15 minuti
+  - sync Google silenzioso ogni 3 ore
 - Task Celery `cockpit.proactive_execution` collegato al loop ReAct.
 - Invio WhatsApp tramite Evolution API configurabile con `EVOLUTION_INSTANCE` e `PROACTIVE_WHATSAPP_NUMBER`.

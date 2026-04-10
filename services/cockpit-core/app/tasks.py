@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Dict
 
 import httpx
@@ -10,10 +12,12 @@ from app.buffer_store import consume_buffered_events
 from app.circuit_breaker import is_open, record_failure, record_success
 from app.config import settings
 from app.dead_letter import push_dead_letter
+from app.db import list_dead_letter_events_since, list_google_accounts
 from app.evolution_client import send_whatsapp_text
 from app.google_sync import sync_google_account_pipeline
 from app.metrics import increment_metric
 from app.rag_pipeline import ingest_document_pipeline
+from app.redis_client import get_redis_client
 
 
 class RetryableTask(Task):
@@ -70,6 +74,55 @@ def _degraded_local_response(message: str) -> str:
     )
 
 
+def _semantic_cache_key(*, source: str, user_id: str, input_digest: str) -> str:
+    digest = hashlib.md5(f"{source}|{user_id}|{input_digest}".encode("utf-8")).hexdigest()
+    return f"cockpit:semantic_cache:{digest}"
+
+
+def _get_cached_agentic_result(*, source: str, user_id: str, input_digest: str) -> Dict[str, Any] | None:
+    if not settings.semantic_cache_enabled:
+        return None
+
+    try:
+        client = get_redis_client()
+        raw = client.get(_semantic_cache_key(source=source, user_id=user_id, input_digest=input_digest))
+    except Exception:  # noqa: BLE001
+        return None
+    if not raw:
+        return None
+
+    try:
+        payload = json.loads(str(raw))
+    except json.JSONDecodeError:
+        return None
+    if isinstance(payload, dict) and isinstance(payload.get("output"), str):
+        increment_metric("semantic_cache_hits_total")
+        return payload
+    return None
+
+
+def _set_cached_agentic_result(*, source: str, user_id: str, input_digest: str, result: Dict[str, str]) -> None:
+    if not settings.semantic_cache_enabled:
+        return
+
+    payload = {
+        "agent": result["agent"],
+        "priority": result["priority"],
+        "agentic_model": result["agentic_model"],
+        "output": result["output"],
+    }
+    try:
+        client = get_redis_client()
+        client.set(
+            _semantic_cache_key(source=source, user_id=user_id, input_digest=input_digest),
+            json.dumps(payload, ensure_ascii=True),
+            ex=max(int(settings.semantic_cache_ttl_seconds), 30),
+        )
+        increment_metric("semantic_cache_sets_total")
+    except Exception:  # noqa: BLE001
+        return
+
+
 def _run_agentic_pipeline(message: str, *, user_id: str, is_proactive: bool = False) -> Dict[str, str]:
     output = run_agentic_loop(
         instruction=message,
@@ -98,6 +151,23 @@ def _execute_orchestration(event: Dict[str, Any]) -> Dict[str, Any]:
     redaction = _redact_text(message)
     redacted_text = str(redaction.get("redacted_text", ""))
     request_id = str(redaction.get("request_id", ""))
+    user_id = str(event.get("user_id") or settings.proactive_default_user_id)
+    source = str(event.get("source") or "unknown")
+    input_digest = hashlib.md5(message.encode("utf-8")).hexdigest()
+
+    cached_result = _get_cached_agentic_result(source=source, user_id=user_id, input_digest=input_digest)
+    if cached_result:
+        restored_output = _restore_text(request_id, str(cached_result["output"]))
+        return {
+            "status": "completed",
+            "route_used": "semantic_cache",
+            "agent": str(cached_result.get("agent", "REACT_COCKPIT_DIRECTOR")),
+            "priority": str(cached_result.get("priority", "medium")),
+            "agentic_model": str(cached_result.get("agentic_model", AGENTIC_MODEL)),
+            "user_id": event.get("user_id"),
+            "source": event.get("source"),
+            "result": restored_output,
+        }
 
     if is_open("openrouter"):
         increment_metric("openrouter_circuit_open_hits_total")
@@ -129,12 +199,17 @@ def _execute_orchestration(event: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     try:
-        user_id = str(event.get("user_id") or settings.proactive_default_user_id)
         agentic_result = _run_agentic_pipeline(redacted_text, user_id=user_id)
+        restored_output = _restore_text(request_id, agentic_result["output"])
         record_success("openrouter")
         increment_metric("openrouter_success_total")
+        _set_cached_agentic_result(
+            source=source,
+            user_id=user_id,
+            input_digest=input_digest,
+            result=agentic_result,
+        )
 
-        restored_output = _restore_text(request_id, agentic_result["output"])
         return {
             "status": "completed",
             "route_used": "openrouter_free_react_loop",
@@ -232,6 +307,9 @@ def proactive_execution(
 ) -> Dict[str, Any]:
     increment_metric("proactive_execution_runs_total")
     target_user_id = str(user_id or settings.proactive_default_user_id).strip()
+    redaction = _redact_text(instruction)
+    redacted_instruction = str(redaction.get("redacted_text", ""))
+    request_id = str(redaction.get("request_id", ""))
 
     if is_open("openrouter"):
         increment_metric("openrouter_circuit_open_hits_total")
@@ -249,10 +327,11 @@ def proactive_execution(
 
     try:
         result = _run_agentic_pipeline(
-            instruction,
+            redacted_instruction,
             user_id=target_user_id,
             is_proactive=True,
         )
+        restored_output = _restore_text(request_id, result["output"])
         record_success("openrouter")
         increment_metric("openrouter_success_total")
     except Exception as exc:  # noqa: BLE001
@@ -274,12 +353,12 @@ def proactive_execution(
 
     notification: Dict[str, Any]
     try:
-        notification = send_whatsapp_text(result["output"])
+        notification = send_whatsapp_text(restored_output)
     except Exception as exc:  # noqa: BLE001
         push_dead_letter(
             stage="proactive_notification",
             reason="evolution_send_failure",
-            payload={"instruction": instruction, "user_id": target_user_id, "output": result["output"]},
+            payload={"instruction": redacted_instruction, "user_id": target_user_id, "output": result["output"]},
             error=str(exc),
         )
         notification = {"status": "failed", "reason": "evolution_send_failure", "error": str(exc)}
@@ -292,7 +371,80 @@ def proactive_execution(
         "agentic_model": result["agentic_model"],
         "user_id": target_user_id,
         "source": "cron",
-        "result": result["output"],
+        "result": restored_output,
+        "notification": notification,
+    }
+
+
+def _is_critical_dead_letter(event: Dict[str, Any]) -> bool:
+    haystack = " ".join(
+        [
+            str(event.get("stage") or ""),
+            str(event.get("reason") or ""),
+            str(event.get("error") or ""),
+        ]
+    ).lower()
+    critical_terms = ("openrouter", "timeout", "network", "circuit", "evolution", "google_sync")
+    return any(term in haystack for term in critical_terms)
+
+
+@celery_app.task(bind=True, base=RetryableTask, name="cockpit.dead_letter_anomaly_scan")
+def dead_letter_anomaly_scan(self: RetryableTask) -> Dict[str, Any]:
+    increment_metric("dead_letter_anomaly_scan_runs_total")
+    window_minutes = max(int(settings.dead_letter_anomaly_window_minutes), 1)
+    threshold = max(int(settings.dead_letter_anomaly_threshold), 1)
+    events = list_dead_letter_events_since(minutes=window_minutes, limit=100)
+    critical_events = [event for event in events if _is_critical_dead_letter(event)]
+
+    if len(critical_events) <= threshold:
+        return {
+            "status": "noop",
+            "reason": "below_threshold",
+            "window_minutes": window_minutes,
+            "critical_count": len(critical_events),
+        }
+
+    client = get_redis_client()
+    cooldown_key = "cockpit:alerts:dead_letter_anomaly"
+    acquired = client.set(
+        cooldown_key,
+        "1",
+        ex=max(int(settings.dead_letter_alert_cooldown_seconds), 60),
+        nx=True,
+    )
+    if not acquired:
+        return {
+            "status": "suppressed",
+            "reason": "cooldown_active",
+            "window_minutes": window_minutes,
+            "critical_count": len(critical_events),
+        }
+
+    sample = critical_events[:5]
+    lines = [
+        "BLUF: anomalia critica nel Cockpit.",
+        f"FINESTRA: ultimi {window_minutes} minuti.",
+        f"ERRORI_CRITICI: {len(critical_events)}.",
+        "CAMPIONE:",
+    ]
+    for event in sample:
+        lines.append(f"- {event['stage']}::{event['reason']} | {str(event.get('error') or '')[:160]}")
+
+    try:
+        notification = send_whatsapp_text("\n".join(lines))
+    except Exception as exc:  # noqa: BLE001
+        push_dead_letter(
+            stage="dead_letter_anomaly_scan",
+            reason="alert_send_failure",
+            payload={"critical_count": len(critical_events), "window_minutes": window_minutes},
+            error=str(exc),
+        )
+        notification = {"status": "failed", "reason": "alert_send_failure", "error": str(exc)}
+    increment_metric("dead_letter_anomaly_alerts_total")
+    return {
+        "status": "alerted",
+        "window_minutes": window_minutes,
+        "critical_count": len(critical_events),
         "notification": notification,
     }
 
@@ -347,3 +499,21 @@ def sync_google_account(
             "error": str(exc),
             "account_id": int(account_id),
         }
+
+
+@celery_app.task(bind=True, base=RetryableTask, name="cockpit.sync_all_google_accounts")
+def sync_all_google_accounts(self: RetryableTask) -> Dict[str, Any]:
+    increment_metric("google_sync_all_runs_total")
+    accounts = [account for account in list_google_accounts() if str(account.get("status")) == "active"]
+    dispatched: list[int] = []
+
+    for account in accounts:
+        account_id = int(account["id"])
+        sync_google_account.delay(account_id, ["gmail", "drive", "calendar"], False)
+        dispatched.append(account_id)
+
+    return {
+        "status": "dispatched",
+        "accounts": dispatched,
+        "count": len(dispatched),
+    }

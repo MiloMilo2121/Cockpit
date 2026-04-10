@@ -109,6 +109,8 @@ def chat_completion_message(
     max_tokens: int | None = None,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
+    response_format: dict[str, Any] | None = None,
+    parallel_tool_calls: bool | None = None,
 ) -> OpenRouterChatResponse:
     if not settings.openrouter_api_key:
         raise OpenRouterError("openrouter_api_key_not_set")
@@ -134,6 +136,10 @@ def chat_completion_message(
             body["tools"] = tools
         if tool_choice is not None:
             body["tool_choice"] = tool_choice
+        if response_format is not None:
+            body["response_format"] = response_format
+        if parallel_tool_calls is not None:
+            body["parallel_tool_calls"] = parallel_tool_calls
 
         try:
             response = httpx.post(
@@ -182,6 +188,8 @@ def chat_completion(
     max_tokens: int | None = None,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
+    response_format: dict[str, Any] | None = None,
+    parallel_tool_calls: bool | None = None,
 ) -> tuple[str, str]:
     response = chat_completion_message(
         messages=messages,
@@ -190,5 +198,7 @@ def chat_completion(
         max_tokens=max_tokens,
         tools=tools,
         tool_choice=tool_choice,
+        response_format=response_format,
+        parallel_tool_calls=parallel_tool_calls,
     )
     return response.content, response.model

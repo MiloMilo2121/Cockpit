@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     circuit_breaker_failure_threshold: int = 4
     circuit_breaker_open_seconds: int = 90
     dead_letter_enabled: bool = True
+    semantic_cache_enabled: bool = True
+    semantic_cache_ttl_seconds: int = 300
+    dead_letter_anomaly_window_minutes: int = 15
+    dead_letter_anomaly_threshold: int = 3
+    dead_letter_alert_cooldown_seconds: int = 900
 
     proactive_default_user_id: str = "marco"
     proactive_notify_whatsapp_enabled: bool = True

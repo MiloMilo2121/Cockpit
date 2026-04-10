@@ -48,6 +48,7 @@ gunzip -c backups/postgres_<db>_<timestamp>.sql.gz | docker compose exec -T post
 - API errors: `docker compose logs -f cockpit-api cockpit-worker cockpit-beat`
 - File ingest errors: `docker compose logs -f file-watcher`
 - Messaging errors: `docker compose logs -f evolution-api`
+- Proactive scheduler: `docker compose logs -f cockpit-beat cockpit-worker`
 - Dead letter events: `GET /ops/dead-letter?limit=100`
 - Circuit breaker status: `GET /ops/metrics`
 

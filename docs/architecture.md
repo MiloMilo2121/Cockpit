@@ -33,6 +33,12 @@ Tutti i servizi sono su rete Docker interna `backend`; verso Internet è esposto
   - Reason: il modello decide se servono tool.
   - Act: il worker esegue tool locali deterministici e compatta i risultati.
   - Final: nessun tool call residuo e output BLUF.
+- Quality gate:
+  - gli schema tool sono strict e gli argomenti vengono validati con Pydantic prima dell'esecuzione locale.
+  - il loop ha hard cap a 4 tool turn; se il modello insiste, il sistema restituisce i dati gia' estratti e manda dead-letter.
+  - i task proattivi passano da reflection JSON prima dell'invio WhatsApp.
+- Ottimizzazione costi:
+  - Redis cache su input identici per 5 minuti, dopo redazione PII e prima della chiamata OpenRouter.
 - Tool obbligatori prima di ogni piano:
   - `get_calendar_context`
   - `search_qdrant_tasks`
@@ -51,6 +57,8 @@ Tutti i servizi sono su rete Docker interna `backend`; verso Internet è esposto
 - Schedule:
   - 07:30 Europe/Rome: briefing mattutino
   - 14:00 Europe/Rome: correzione di meta giornata
+  - ogni 15 minuti: scan anomalie dead-letter con alert WhatsApp se supera soglia
+  - ogni 3 ore: sync silenzioso account Google attivi
 - Il task legge Calendar, Qdrant e raw events, poi invia il piano a WhatsApp via Evolution API se `EVOLUTION_INSTANCE` e `PROACTIVE_WHATSAPP_NUMBER` sono configurati.
 
 ## 4) Affidabilità e resilienza

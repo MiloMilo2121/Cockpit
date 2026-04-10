@@ -139,9 +139,18 @@ curl https://<DOMAIN_API>/jobs/<JOB_ID>
 - Circuit breaker su OpenRouter con variabili:
   - `CIRCUIT_BREAKER_FAILURE_THRESHOLD`
   - `CIRCUIT_BREAKER_OPEN_SECONDS`
+- Cache semantica Redis per input identici negli ultimi 5 minuti:
+  - `SEMANTIC_CACHE_ENABLED`
+  - `SEMANTIC_CACHE_TTL_SECONDS`
+- Quality gate:
+  - schema tool strict + validazione Pydantic sugli argomenti
+  - cap a 4 tool loop consecutivi
+  - reflection JSON obbligatoria prima dei messaggi WhatsApp proattivi
 - Celery Beat schedula:
   - `morning_briefing` alle 07:30
   - `midday_course_correction` alle 14:00
+  - anomaly scan dead-letter ogni 15 minuti
+  - sync silenzioso Google ogni 3 ore
 - Il task `cockpit.proactive_execution` invia il risultato a WhatsApp tramite Evolution API quando configurato.
 - Dead-letter queue persistita su PostgreSQL (`cockpit_dead_letter_events`).
 - Endpoint operativi:

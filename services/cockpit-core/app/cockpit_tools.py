@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 from zoneinfo import ZoneInfo
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import settings
 from app.db import list_google_accounts, list_raw_events_for_user
@@ -28,6 +30,39 @@ CRITICAL_KEYWORDS = {
     "critical",
     "critico",
 }
+
+WindowName = Literal["today", "tomorrow", "next_24h", "upcoming_week", "week", "this_week", "domani", "settimana", "24h"]
+ProviderName = Literal["gmail", "drive", "calendar"]
+
+
+class CalendarContextArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    window: WindowName = "today"
+    start: str | None = None
+    end: str | None = None
+    from_: str | None = Field(default=None, alias="from")
+    to: str | None = None
+    limit: int = Field(default=20, ge=1, le=50)
+
+
+class QdrantTaskSearchArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(default="task aperti TODO next action file watcher priorita", min_length=1, max_length=500)
+    limit: int = Field(default=8, ge=1, le=20)
+
+
+class RawEventsQueryArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    provider: ProviderName | None = None
+    window: WindowName = "today"
+    start: str | None = None
+    end: str | None = None
+    from_: str | None = Field(default=None, alias="from")
+    to: str | None = None
+    limit: int = Field(default=12, ge=1, le=50)
 
 
 def _string(value: Any, default: str = "") -> str:
@@ -320,6 +355,26 @@ TOOL_HANDLERS: dict[str, ToolHandler] = {
     "query_raw_events": query_raw_events,
 }
 
+TOOL_ARG_MODELS: dict[str, type[BaseModel]] = {
+    "get_calendar_context": CalendarContextArgs,
+    "search_qdrant_tasks": QdrantTaskSearchArgs,
+    "query_raw_events": RawEventsQueryArgs,
+}
+
+
+def _validate_tool_args(name: str, args: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    model = TOOL_ARG_MODELS.get(name)
+    if model is None:
+        return args, None
+
+    try:
+        validated = model.model_validate(args)
+    except ValidationError as exc:
+        errors = exc.errors(include_url=False, include_input=False)
+        return None, f"tool_args_validation_error name={name} errors={errors}"
+
+    return validated.model_dump(by_alias=True, exclude_none=True), None
+
 
 def execute_cockpit_tool(name: str, args: dict[str, Any] | None, user_id: str) -> str:
     handler = TOOL_HANDLERS.get(name)
@@ -327,8 +382,12 @@ def execute_cockpit_tool(name: str, args: dict[str, Any] | None, user_id: str) -
     if handler is None:
         return f"tool_error name={name} reason=unknown_tool"
 
+    validated_args, validation_error = _validate_tool_args(name, safe_args)
+    if validation_error:
+        return validation_error
+
     try:
-        return _truncate(handler(safe_args, user_id))
+        return _truncate(handler(validated_args or {}, user_id))
     except Exception as exc:  # noqa: BLE001
         push_dead_letter(
             stage="agent_tool",

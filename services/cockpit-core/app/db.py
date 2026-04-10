@@ -261,6 +261,35 @@ def list_recent_dead_letter_events(limit: int = 50) -> list[dict[str, Any]]:
     return result
 
 
+def list_dead_letter_events_since(*, minutes: int, limit: int = 100) -> list[dict[str, Any]]:
+    safe_minutes = min(max(int(minutes), 1), 1440)
+    safe_limit = min(max(limit, 1), 500)
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, stage, reason, payload, error, created_at
+            FROM cockpit_dead_letter_events
+            WHERE created_at >= NOW() - (%s * INTERVAL '1 minute')
+            ORDER BY id DESC
+            LIMIT %s;
+            """,
+            (safe_minutes, safe_limit),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "id": int(row[0]),
+            "stage": str(row[1]),
+            "reason": str(row[2]),
+            "payload": row[3] if isinstance(row[3], dict) else {},
+            "error": None if row[4] is None else str(row[4]),
+            "created_at": _iso_or_none(row[5]),
+        }
+        for row in rows
+    ]
+
+
 def list_recent_message_events(limit: int = 20) -> list[dict[str, Any]]:
     safe_limit = min(max(limit, 1), 200)
     with _connect() as conn, conn.cursor() as cur:

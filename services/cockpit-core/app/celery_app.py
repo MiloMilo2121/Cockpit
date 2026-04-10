@@ -29,6 +29,14 @@ celery_app.conf.update(
             "schedule": crontab(hour=14, minute=0),
             "args": ("Verifica scostamenti dal piano mattutino e rialloca i blocchi di lavoro.",),
         },
+        "dead_letter_anomaly_scan": {
+            "task": "cockpit.dead_letter_anomaly_scan",
+            "schedule": crontab(minute="*/15"),
+        },
+        "silent_google_sync": {
+            "task": "cockpit.sync_all_google_accounts",
+            "schedule": crontab(minute=0, hour="*/3"),
+        },
     },
 )
 
