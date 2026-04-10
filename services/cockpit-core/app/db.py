@@ -717,6 +717,77 @@ def list_recent_raw_events_global(limit: int = 50) -> list[dict[str, Any]]:
     ]
 
 
+def list_raw_events_for_user(
+    *,
+    user_id: str,
+    providers: list[str] | None = None,
+    resource_types: list[str] | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    safe_limit = min(max(limit, 1), 500)
+    clauses = ["a.user_id = %s"]
+    params: list[Any] = [user_id]
+
+    if providers:
+        cleaned_providers = [str(item).strip() for item in providers if str(item).strip()]
+        if cleaned_providers:
+            placeholders = ", ".join(["%s"] * len(cleaned_providers))
+            clauses.append(f"e.provider IN ({placeholders})")
+            params.extend(cleaned_providers)
+
+    if resource_types:
+        cleaned_resource_types = [str(item).strip() for item in resource_types if str(item).strip()]
+        if cleaned_resource_types:
+            placeholders = ", ".join(["%s"] * len(cleaned_resource_types))
+            clauses.append(f"e.resource_type IN ({placeholders})")
+            params.extend(cleaned_resource_types)
+
+    params.append(safe_limit)
+    where_sql = " AND ".join(clauses)
+
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+                e.event_uid,
+                e.account_id,
+                a.google_email,
+                e.provider,
+                e.resource_type,
+                e.external_id,
+                e.event_type,
+                e.source_cursor,
+                e.occurred_at,
+                e.created_at,
+                e.payload
+            FROM cockpit_raw_events e
+            JOIN cockpit_google_accounts a ON a.id = e.account_id
+            WHERE {where_sql}
+            ORDER BY e.created_at DESC
+            LIMIT %s;
+            """,
+            tuple(params),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "event_uid": str(row[0]),
+            "account_id": int(row[1]),
+            "account_email": str(row[2]),
+            "provider": str(row[3]),
+            "resource_type": str(row[4]),
+            "external_id": str(row[5]),
+            "event_type": str(row[6]),
+            "source_cursor": str(row[7]),
+            "occurred_at": _iso_or_none(row[8]),
+            "created_at": _iso_or_none(row[9]),
+            "payload": row[10] if isinstance(row[10], dict) else {},
+        }
+        for row in rows
+    ]
+
+
 def upsert_external_document(
     *,
     account_id: int,

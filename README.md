@@ -1,12 +1,13 @@
 # Personal Life Cockpit (Predictive)
 
 Base infrastrutturale self-hosted per un Life Cockpit predittivo.  
-Runtime completamente code-first: `cockpit-core` (`FastAPI + Celery`) con pipeline multi-agent, RAG e resilienza operativa.
+Runtime completamente code-first: `cockpit-core` (`FastAPI + Celery`) con loop ReAct agentico, RAG e resilienza operativa.
 
 ## Stack
 
 - `cockpit-core` (`FastAPI`) per webhook/API applicative
 - `cockpit-worker` (`Celery`) per orchestrazione asincrona e retry/backoff
+- `cockpit-beat` (`Celery Beat`) per briefing e correzioni proattive schedulate
 - `cockpit-ui` (`React + Vite`) come plancia comando top-level
 - `PostgreSQL 16` per stato/credenziali/log
 - `Redis 7` come broker/caching
@@ -55,6 +56,8 @@ cp .env.example .env
 - `RAG_VECTOR_SIZE` (default `384`)
 - `QDRANT_API_KEY`
 - `EVOLUTION_API_KEY`
+- `EVOLUTION_INSTANCE`
+- `PROACTIVE_WHATSAPP_NUMBER`
 - `PRIVACY_SALT`
 
 3. Avvia stack:
@@ -67,7 +70,7 @@ docker compose up -d --build
 
 ```bash
 docker compose ps
-docker compose logs -f cockpit-api cockpit-worker
+docker compose logs -f cockpit-api cockpit-worker cockpit-beat
 ```
 
 ## Endpoint attesi
@@ -124,13 +127,22 @@ curl https://<DOMAIN_API>/jobs/<JOB_ID>
   - `duplicate` con `job_id` precedente (se disponibile)
   - `ignored` per self-message
 
-## Step 3 attivo (multi-agent + resilienza)
+## Step 3 attivo (ReAct director + resilienza)
 
-- Router multi-agent: `RAG_ANALYST_AGENT`, `COMMUNICATION_AGENT`, `SYSTEM_MAINTENANCE_AGENT`, `GENERAL_PLANNER_AGENT`.
+- Loop agentico ReAct in `agents.py`, guidato da `qwen/qwen3.6-plus:free` via OpenRouter.
+- Tool locali deterministici:
+  - `get_calendar_context`
+  - `search_qdrant_tasks`
+  - `query_raw_events`
+- Output operativo finale in formato BLUF dopo lettura calendario e task Qdrant.
 - Solo modelli OpenRouter gratuiti (`:free`) tramite `OPENROUTER_FREE_MODELS`.
 - Circuit breaker su OpenRouter con variabili:
   - `CIRCUIT_BREAKER_FAILURE_THRESHOLD`
   - `CIRCUIT_BREAKER_OPEN_SECONDS`
+- Celery Beat schedula:
+  - `morning_briefing` alle 07:30
+  - `midday_course_correction` alle 14:00
+- Il task `cockpit.proactive_execution` invia il risultato a WhatsApp tramite Evolution API quando configurato.
 - Dead-letter queue persistita su PostgreSQL (`cockpit_dead_letter_events`).
 - Endpoint operativi:
   - `GET /ops/metrics`

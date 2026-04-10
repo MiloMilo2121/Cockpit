@@ -3,7 +3,7 @@
 ## 1) Topologia
 
 - Reverse proxy: `Caddy` (TLS automatico)
-- Runtime code-first: `cockpit-core` (`FastAPI`) + `cockpit-worker` (`Celery`)
+- Runtime code-first: `cockpit-core` (`FastAPI`) + `cockpit-worker` (`Celery`) + `cockpit-beat` (`Celery Beat`)
 - Frontend command center: `cockpit-ui` (`React + Vite`)
 - Persistenza: `PostgreSQL`
 - Messaggistica interna: `Redis`
@@ -22,21 +22,36 @@ Tutti i servizi sono su rete Docker interna `backend`; verso Internet è esposto
 2. `cockpit-api` applica dedup (`source + source_message_id`) su PostgreSQL.
 3. Eventi WhatsApp vengono bufferizzati su Redis e aggregati da `cockpit-worker`.
 4. `cockpit-worker` invia testo aggregato a `privacy-node /redact`.
-5. Testo redatto va a LLM router (OpenRouter primario, Ollama fallback).
-6. Output LLM torna a `privacy-node /restore`.
+5. Testo redatto entra nel loop ReAct `Cockpit Director` (OpenRouter primario, tool locali DB/Qdrant).
+6. Output finale BLUF torna a `privacy-node /restore`.
 7. Il risultato viene reso disponibile via endpoint `/jobs/{job_id}`.
 
-## 3) Routing LLM ibrido
+## 3) Loop agentico ReAct
 
-- Primario: OpenRouter con modelli gratuiti (`:free`) configurati in `OPENROUTER_FREE_MODELS`.
-- Multi-agent in due fasi:
-  - Router intent -> selezione agente specialistico.
-  - Specialista -> output operativo strutturato.
+- Primario: OpenRouter con `qwen/qwen3.6-plus:free` e fallback ai modelli gratuiti configurati in `OPENROUTER_FREE_MODELS`.
+- State machine in `agents.py`:
+  - Reason: il modello decide se servono tool.
+  - Act: il worker esegue tool locali deterministici e compatta i risultati.
+  - Final: nessun tool call residuo e output BLUF.
+- Tool obbligatori prima di ogni piano:
+  - `get_calendar_context`
+  - `search_qdrant_tasks`
+- Tool opzionale per email/Drive/variazioni operative:
+  - `query_raw_events`
+- Hard cap a 5 iterazioni con dead-letter su timeout.
 - Resilienza:
   - retry con backoff esponenziale + jitter
   - circuit breaker su OpenRouter
   - fallback locale degradato (se abilitato)
   - dead-letter queue persistita su PostgreSQL
+
+## 3.1) Scheduling proattivo
+
+- `cockpit-beat` pubblica task `cockpit.proactive_execution`.
+- Schedule:
+  - 07:30 Europe/Rome: briefing mattutino
+  - 14:00 Europe/Rome: correzione di meta giornata
+- Il task legge Calendar, Qdrant e raw events, poi invia il piano a WhatsApp via Evolution API se `EVOLUTION_INSTANCE` e `PROACTIVE_WHATSAPP_NUMBER` sono configurati.
 
 ## 4) Affidabilità e resilienza
 

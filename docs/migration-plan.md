@@ -18,8 +18,12 @@
 
 ## Step 3 (completato)
 
-- Router multi-agent code-first implementato (`RAG_ANALYST_AGENT`, `COMMUNICATION_AGENT`, `SYSTEM_MAINTENANCE_AGENT`, `GENERAL_PLANNER_AGENT`).
-- Esecuzione specialistica via OpenRouter con modelli `:free` configurabili da env.
+- Router multi-agent sostituito da loop ReAct code-first in `agents.py`.
+- Qwen via OpenRouter free (`qwen/qwen3.6-plus:free`) orchestra tool locali e produce output BLUF.
+- Tool matrix implementata:
+  - `get_calendar_context`
+  - `search_qdrant_tasks`
+  - `query_raw_events`
 - Circuit breaker su integrazione OpenRouter con soglia errori e finestra di apertura.
 - Dead-letter queue persistita su PostgreSQL (`cockpit_dead_letter_events`).
 - Metriche operative esposte via endpoint `/ops/metrics` e dead-letter via `/ops/dead-letter`.
@@ -78,3 +82,12 @@
 - Reverse proxy Caddy esteso con `DOMAIN_APP` e routing `/api`.
 - Endpoint `GET /dashboard/overview` introdotto per alimentare la UI HQ.
 - Prima versione della plancia comando top-level implementata.
+
+## Step 9 (completato)
+
+- `cockpit-beat` aggiunto a `docker-compose.yml`.
+- Beat schedule attivo:
+  - briefing mattutino alle 07:30
+  - correzione di meta giornata alle 14:00
+- Task Celery `cockpit.proactive_execution` collegato al loop ReAct.
+- Invio WhatsApp tramite Evolution API configurabile con `EVOLUTION_INSTANCE` e `PROACTIVE_WHATSAPP_NUMBER`.

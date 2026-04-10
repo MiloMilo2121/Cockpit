@@ -19,7 +19,7 @@ logs:
 	$(COMPOSE) logs -f --tail=200
 
 logs-core:
-	$(COMPOSE) logs -f --tail=200 cockpit-api cockpit-worker
+	$(COMPOSE) logs -f --tail=200 cockpit-api cockpit-worker cockpit-beat
 
 logs-ui:
 	$(COMPOSE) logs -f --tail=200 cockpit-ui

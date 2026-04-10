@@ -45,7 +45,7 @@ gunzip -c backups/postgres_<db>_<timestamp>.sql.gz | docker compose exec -T post
 
 ## 4) Incident triage
 
-- API errors: `docker compose logs -f cockpit-api cockpit-worker`
+- API errors: `docker compose logs -f cockpit-api cockpit-worker cockpit-beat`
 - File ingest errors: `docker compose logs -f file-watcher`
 - Messaging errors: `docker compose logs -f evolution-api`
 - Dead letter events: `GET /ops/dead-letter?limit=100`
@@ -63,7 +63,7 @@ make logs-watcher
 3. Controlla che `cockpit-api` abbia job RAG in coda:
 
 ```bash
-docker compose logs -f cockpit-api cockpit-worker
+docker compose logs -f cockpit-api cockpit-worker cockpit-beat
 ```
 
 ## 6) Google OAuth + sync (Step 7)

@@ -5,11 +5,12 @@ from typing import Any, Dict
 import httpx
 from celery import Task
 
-from app.agents import route_to_agent, run_specialist
+from app.agents import AGENTIC_MODEL, run_agentic_loop
 from app.buffer_store import consume_buffered_events
 from app.circuit_breaker import is_open, record_failure, record_success
 from app.config import settings
 from app.dead_letter import push_dead_letter
+from app.evolution_client import send_whatsapp_text
 from app.google_sync import sync_google_account_pipeline
 from app.metrics import increment_metric
 from app.rag_pipeline import ingest_document_pipeline
@@ -69,21 +70,17 @@ def _degraded_local_response(message: str) -> str:
     )
 
 
-def _run_multi_agent_pipeline(message: str) -> Dict[str, str]:
-    route = route_to_agent(message)
-    specialist = run_specialist(
-        agent=route["agent"],
-        message=message,
-        route_reason=route["reason"],
-        priority=route["priority"],
+def _run_agentic_pipeline(message: str, *, user_id: str, is_proactive: bool = False) -> Dict[str, str]:
+    output = run_agentic_loop(
+        instruction=message,
+        user_id=user_id,
+        is_proactive=is_proactive,
     )
     return {
-        "agent": route["agent"],
-        "priority": route["priority"],
-        "route_reason": route["reason"],
-        "router_model": route["router_model"],
-        "specialist_model": specialist["specialist_model"],
-        "output": specialist["output"],
+        "agent": "REACT_COCKPIT_DIRECTOR",
+        "priority": "high" if is_proactive else "medium",
+        "agentic_model": AGENTIC_MODEL,
+        "output": output,
     }
 
 
@@ -132,19 +129,18 @@ def _execute_orchestration(event: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     try:
-        multi_agent_result = _run_multi_agent_pipeline(redacted_text)
+        user_id = str(event.get("user_id") or settings.proactive_default_user_id)
+        agentic_result = _run_agentic_pipeline(redacted_text, user_id=user_id)
         record_success("openrouter")
         increment_metric("openrouter_success_total")
 
-        restored_output = _restore_text(request_id, multi_agent_result["output"])
+        restored_output = _restore_text(request_id, agentic_result["output"])
         return {
             "status": "completed",
-            "route_used": "openrouter_free_multi_agent",
-            "agent": multi_agent_result["agent"],
-            "priority": multi_agent_result["priority"],
-            "route_reason": multi_agent_result["route_reason"],
-            "router_model": multi_agent_result["router_model"],
-            "specialist_model": multi_agent_result["specialist_model"],
+            "route_used": "openrouter_free_react_loop",
+            "agent": agentic_result["agent"],
+            "priority": agentic_result["priority"],
+            "agentic_model": agentic_result["agentic_model"],
             "user_id": event.get("user_id"),
             "source": event.get("source"),
             "result": restored_output,
@@ -226,6 +222,79 @@ def process_buffered_session(self: RetryableTask, source: str, user_id: str) -> 
         },
     }
     return _execute_orchestration(aggregated_event)
+
+
+@celery_app.task(bind=True, base=RetryableTask, name="cockpit.proactive_execution")
+def proactive_execution(
+    self: RetryableTask,
+    instruction: str,
+    user_id: str | None = None,
+) -> Dict[str, Any]:
+    increment_metric("proactive_execution_runs_total")
+    target_user_id = str(user_id or settings.proactive_default_user_id).strip()
+
+    if is_open("openrouter"):
+        increment_metric("openrouter_circuit_open_hits_total")
+        push_dead_letter(
+            stage="proactive_execution_precheck",
+            reason="openrouter_circuit_open",
+            payload={"instruction": instruction, "user_id": target_user_id},
+            error="circuit_open",
+        )
+        return {
+            "status": "failed",
+            "reason": "openrouter_circuit_open",
+            "user_id": target_user_id,
+        }
+
+    try:
+        result = _run_agentic_pipeline(
+            instruction,
+            user_id=target_user_id,
+            is_proactive=True,
+        )
+        record_success("openrouter")
+        increment_metric("openrouter_success_total")
+    except Exception as exc:  # noqa: BLE001
+        failure_info = record_failure("openrouter")
+        increment_metric("openrouter_failure_total")
+        push_dead_letter(
+            stage="proactive_execution",
+            reason="openrouter_failure",
+            payload={"instruction": instruction, "user_id": target_user_id},
+            error=str(exc),
+        )
+        return {
+            "status": "failed",
+            "reason": "openrouter_failure",
+            "error": str(exc),
+            "circuit_opened": bool(failure_info.get("opened")),
+            "user_id": target_user_id,
+        }
+
+    notification: Dict[str, Any]
+    try:
+        notification = send_whatsapp_text(result["output"])
+    except Exception as exc:  # noqa: BLE001
+        push_dead_letter(
+            stage="proactive_notification",
+            reason="evolution_send_failure",
+            payload={"instruction": instruction, "user_id": target_user_id, "output": result["output"]},
+            error=str(exc),
+        )
+        notification = {"status": "failed", "reason": "evolution_send_failure", "error": str(exc)}
+
+    return {
+        "status": "completed",
+        "route_used": "openrouter_free_react_loop",
+        "agent": result["agent"],
+        "priority": result["priority"],
+        "agentic_model": result["agentic_model"],
+        "user_id": target_user_id,
+        "source": "cron",
+        "result": result["output"],
+        "notification": notification,
+    }
 
 
 @celery_app.task(bind=True, base=RetryableTask, name="cockpit.rag_ingest_document")

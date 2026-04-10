@@ -50,6 +50,12 @@ x-cockpit-common-env: &cockpit-common-env
   CIRCUIT_BREAKER_FAILURE_THRESHOLD: ${CIRCUIT_BREAKER_FAILURE_THRESHOLD}
   CIRCUIT_BREAKER_OPEN_SECONDS: ${CIRCUIT_BREAKER_OPEN_SECONDS}
   DEAD_LETTER_ENABLED: ${DEAD_LETTER_ENABLED}
+  PROACTIVE_DEFAULT_USER_ID: ${PROACTIVE_DEFAULT_USER_ID}
+  PROACTIVE_NOTIFY_WHATSAPP_ENABLED: ${PROACTIVE_NOTIFY_WHATSAPP_ENABLED}
+  EVOLUTION_API_URL: http://evolution-api:8080
+  EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+  EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE}
+  PROACTIVE_WHATSAPP_NUMBER: ${PROACTIVE_WHATSAPP_NUMBER}
 
 services:
   postgres:
@@ -137,6 +143,26 @@ services:
         condition: service_healthy
       privacy-node:
         condition: service_healthy
+    environment:
+      <<: *cockpit-common-env
+    networks:
+      - backend
+
+  cockpit-beat:
+    build:
+      context: ./services/cockpit-core
+    container_name: lc-cockpit-beat
+    restart: unless-stopped
+    command: celery -A app.celery_app:celery_app beat --loglevel=INFO --schedule=/tmp/celerybeat-schedule
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      privacy-node:
+        condition: service_healthy
+      cockpit-worker:
+        condition: service_started
     environment:
       <<: *cockpit-common-env
     networks:

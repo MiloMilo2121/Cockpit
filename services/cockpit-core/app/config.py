@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://lifecockpit:change-this-postgres-password@postgres:5432/lifecockpit"
 
     openrouter_api_key: str = ""
-    openrouter_model: str = "qwen/qwen3-32b:free"
-    openrouter_free_models: str = "qwen/qwen3-32b:free"
+    openrouter_model: str = "qwen/qwen3.6-plus:free"
+    openrouter_free_models: str = "qwen/qwen3.6-plus:free"
     openrouter_timeout_seconds: int = 45
     openrouter_temperature: float = 0.2
     openrouter_max_tokens: int = 700
@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     circuit_breaker_failure_threshold: int = 4
     circuit_breaker_open_seconds: int = 90
     dead_letter_enabled: bool = True
+
+    proactive_default_user_id: str = "marco"
+    proactive_notify_whatsapp_enabled: bool = True
+
+    evolution_api_url: str = "http://evolution-api:8080"
+    evolution_api_key: str = ""
+    evolution_instance: str = ""
+    proactive_whatsapp_number: str = ""
 
     google_client_id: str = ""
     google_client_secret: str = ""
@@ -86,7 +94,7 @@ class Settings(BaseSettings):
         if not parsed:
             parsed = [self.openrouter_model]
         free_only = [item for item in parsed if item.endswith(":free")]
-        return free_only or ["qwen/qwen3-32b:free"]
+        return free_only or ["qwen/qwen3.6-plus:free"]
 
     @property
     def google_scopes(self) -> list[str]:
