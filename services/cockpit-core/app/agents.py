@@ -13,7 +13,7 @@ from app.config import settings
 from app.dead_letter import push_dead_letter
 from app.openrouter_client import OpenRouterChatResponse, OpenRouterToolCall, chat_completion_message
 
-AGENTIC_MODEL = "qwen/qwen3.6-plus:free"
+AGENTIC_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free"
 MAX_TOOL_LOOPS = 4
 MAX_AGENTIC_ITERATIONS = MAX_TOOL_LOOPS
 MANDATORY_TOOLS = {"get_calendar_context", "search_qdrant_tasks"}

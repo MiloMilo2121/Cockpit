@@ -1,6 +1,6 @@
 COMPOSE = docker compose
 
-.PHONY: up down restart ps logs logs-core logs-ui logs-watcher backup healthcheck validate
+.PHONY: up down restart ps logs logs-core logs-ui logs-watcher backup healthcheck validate check-model
 
 up:
 	$(COMPOSE) up -d --build
@@ -36,3 +36,6 @@ healthcheck:
 validate:
 	$(COMPOSE) config > /dev/null
 	@echo "compose validation: OK"
+
+check-model:
+	python3 scripts/check_openrouter_model.py

@@ -19,7 +19,7 @@
 ## Step 3 (completato)
 
 - Router multi-agent sostituito da loop ReAct code-first in `agents.py`.
-- Qwen via OpenRouter free (`qwen/qwen3.6-plus:free`) orchestra tool locali e produce output BLUF.
+- Qwen via OpenRouter free (`qwen/qwen3-next-80b-a3b-instruct:free`) orchestra tool locali e produce output BLUF.
 - Tool matrix implementata:
   - `get_calendar_context`
   - `search_qdrant_tasks`

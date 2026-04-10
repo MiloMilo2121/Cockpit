@@ -129,7 +129,7 @@ curl https://<DOMAIN_API>/jobs/<JOB_ID>
 
 ## Step 3 attivo (ReAct director + resilienza)
 
-- Loop agentico ReAct in `agents.py`, guidato da `qwen/qwen3.6-plus:free` via OpenRouter.
+- Loop agentico ReAct in `agents.py`, guidato da `qwen/qwen3-next-80b-a3b-instruct:free` via OpenRouter.
 - Tool locali deterministici:
   - `get_calendar_context`
   - `search_qdrant_tasks`
@@ -146,6 +146,8 @@ curl https://<DOMAIN_API>/jobs/<JOB_ID>
   - schema tool strict + validazione Pydantic sugli argomenti
   - cap a 4 tool loop consecutivi
   - reflection JSON obbligatoria prima dei messaggi WhatsApp proattivi
+- Check modello:
+  - `make check-model` verifica il catalogo OpenRouter e fallisce se il modello configurato non e' free o non supporta tool/JSON mode.
 - Celery Beat schedula:
   - `morning_briefing` alle 07:30
   - `midday_course_correction` alle 14:00

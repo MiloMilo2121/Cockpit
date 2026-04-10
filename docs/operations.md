@@ -51,6 +51,7 @@ gunzip -c backups/postgres_<db>_<timestamp>.sql.gz | docker compose exec -T post
 - Proactive scheduler: `docker compose logs -f cockpit-beat cockpit-worker`
 - Dead letter events: `GET /ops/dead-letter?limit=100`
 - Circuit breaker status: `GET /ops/metrics`
+- OpenRouter model contract: `make check-model`
 
 ## 5) File watcher flow (Step 6)
 

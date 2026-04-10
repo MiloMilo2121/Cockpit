@@ -28,7 +28,7 @@ Tutti i servizi sono su rete Docker interna `backend`; verso Internet è esposto
 
 ## 3) Loop agentico ReAct
 
-- Primario: OpenRouter con `qwen/qwen3.6-plus:free` e fallback ai modelli gratuiti configurati in `OPENROUTER_FREE_MODELS`.
+- Primario: OpenRouter con `qwen/qwen3-next-80b-a3b-instruct:free` e fallback ai modelli gratuiti configurati in `OPENROUTER_FREE_MODELS`.
 - State machine in `agents.py`:
   - Reason: il modello decide se servono tool.
   - Act: il worker esegue tool locali deterministici e compatta i risultati.

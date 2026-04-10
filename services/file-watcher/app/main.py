@@ -134,7 +134,7 @@ def load_settings() -> Settings:
         task_webhook_enabled=_env_bool("FILE_WATCHER_ENABLE_TASK_WEBHOOK", True),
         openrouter_api_key=_env("OPENROUTER_API_KEY", ""),
         openrouter_free_models=[
-            item.strip() for item in _env("OPENROUTER_FREE_MODELS", "qwen/qwen3.6-plus:free").split(",") if item.strip()
+            item.strip() for item in _env("OPENROUTER_FREE_MODELS", "qwen/qwen3-next-80b-a3b-instruct:free").split(",") if item.strip()
         ],
         openrouter_timeout_seconds=max(_env_float("OPENROUTER_TIMEOUT_SECONDS", 45.0), 5.0),
     )
@@ -389,7 +389,7 @@ def _openrouter_classification(settings: Settings, text: str, filename: str) -> 
 
     models = [model for model in settings.openrouter_free_models if model.endswith(":free")]
     if not models:
-        models = ["qwen/qwen3.6-plus:free"]
+        models = ["qwen/qwen3-next-80b-a3b-instruct:free"]
 
     with httpx.Client(timeout=settings.openrouter_timeout_seconds) as client:
         for model in models:
