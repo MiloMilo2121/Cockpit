@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_model: str = "qwen/qwen3-next-80b-a3b-instruct:free"
     openrouter_free_models: str = "qwen/qwen3-next-80b-a3b-instruct:free"
+    openrouter_easy_models: str = "qwen/qwen3-next-80b-a3b-instruct:free"
+    openrouter_medium_models: str = "qwen/qwen3.6-plus"
+    openrouter_hard_models: str = "z-ai/glm-5.1"
+    openrouter_allow_paid_models: bool = False
     openrouter_timeout_seconds: int = 45
     openrouter_temperature: float = 0.2
     openrouter_max_tokens: int = 700
@@ -100,6 +104,32 @@ class Settings(BaseSettings):
             parsed = [self.openrouter_model]
         free_only = [item for item in parsed if item.endswith(":free")]
         return free_only or ["qwen/qwen3-next-80b-a3b-instruct:free"]
+
+    @staticmethod
+    def _parse_model_list(raw: str, fallback: list[str]) -> list[str]:
+        parsed = [item.strip() for item in raw.split(",") if item.strip()]
+        return parsed or fallback
+
+    @property
+    def openrouter_easy_model_list(self) -> list[str]:
+        return self._parse_model_list(
+            self.openrouter_easy_models,
+            ["qwen/qwen3-next-80b-a3b-instruct:free"],
+        )
+
+    @property
+    def openrouter_medium_model_list(self) -> list[str]:
+        return self._parse_model_list(
+            self.openrouter_medium_models,
+            ["qwen/qwen3.6-plus"],
+        )
+
+    @property
+    def openrouter_hard_model_list(self) -> list[str]:
+        return self._parse_model_list(
+            self.openrouter_hard_models,
+            ["z-ai/glm-5.1"],
+        )
 
     @property
     def google_scopes(self) -> list[str]:

@@ -11,9 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.cockpit_tools import execute_cockpit_tool
 from app.config import settings
 from app.dead_letter import push_dead_letter
+from app.model_router import ModelRoute, select_model_route
 from app.openrouter_client import OpenRouterChatResponse, OpenRouterToolCall, chat_completion_message
 
-AGENTIC_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free"
+AGENTIC_EASY_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free"
+AGENTIC_MEDIUM_MODEL = "qwen/qwen3.6-plus"
+AGENTIC_HARD_MODEL = "z-ai/glm-5.1"
+AGENTIC_MODEL = AGENTIC_EASY_MODEL
 MAX_TOOL_LOOPS = 4
 MAX_AGENTIC_ITERATIONS = MAX_TOOL_LOOPS
 MANDATORY_TOOLS = {"get_calendar_context", "search_qdrant_tasks"}
@@ -245,9 +249,20 @@ def _fallback_from_observations(tool_observations: list[str]) -> str:
     )
 
 
-def reflect_final_output(draft: str, *, tool_observations: list[str], user_id: str) -> str:
+def reflect_final_output(
+    draft: str,
+    *,
+    tool_observations: list[str],
+    user_id: str,
+    model_route: ModelRoute | None = None,
+) -> str:
     current_draft = draft.strip()
     observation_context = _format_tool_observations(tool_observations)
+    route = model_route or select_model_route(
+        instruction=current_draft,
+        priority="medium",
+        is_proactive=True,
+    )
 
     for attempt in range(1, 3):
         messages = [
@@ -276,10 +291,12 @@ def reflect_final_output(draft: str, *, tool_observations: list[str], user_id: s
         try:
             response = chat_completion_message(
                 messages=messages,
-                preferred_models=[AGENTIC_MODEL],
+                preferred_models=route.models,
                 temperature=0.0,
-                max_tokens=600,
+                max_tokens=max(600, route.max_tokens),
                 response_format={"type": "json_object"},
+                reasoning=route.reasoning,
+                include_configured_fallbacks=False,
             )
             parsed = _extract_json_object(response.content) or {}
             reflection = ReflectionResult.model_validate(parsed)
@@ -310,8 +327,19 @@ def reflect_final_output(draft: str, *, tool_observations: list[str], user_id: s
     return UNSTABLE_OUTPUT
 
 
-def run_agentic_loop(instruction: str, user_id: str, is_proactive: bool = False) -> str:
+def run_agentic_loop(
+    instruction: str,
+    user_id: str,
+    is_proactive: bool = False,
+    priority: str | None = None,
+    model_route: ModelRoute | None = None,
+) -> str:
     mode = "proactive" if is_proactive else "reactive"
+    route = model_route or select_model_route(
+        instruction=instruction,
+        priority=priority,
+        is_proactive=is_proactive,
+    )
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": MASTER_PROMPT},
         {
@@ -334,10 +362,11 @@ def run_agentic_loop(instruction: str, user_id: str, is_proactive: bool = False)
             messages=messages,
             tools=COCKPIT_TOOLS,
             tool_choice="auto",
-            preferred_models=[AGENTIC_MODEL],
+            preferred_models=route.models,
             temperature=0.0,
-            max_tokens=settings.openrouter_max_tokens,
-            parallel_tool_calls=False,
+            max_tokens=route.max_tokens,
+            reasoning=route.reasoning,
+            include_configured_fallbacks=False,
         )
 
         if response.has_tool_calls:
@@ -376,7 +405,12 @@ def run_agentic_loop(instruction: str, user_id: str, is_proactive: bool = False)
 
         final_output = response.content.strip()
         if is_proactive:
-            return reflect_final_output(final_output, tool_observations=tool_observations, user_id=user_id)
+            return reflect_final_output(
+                final_output,
+                tool_observations=tool_observations,
+                user_id=user_id,
+                model_route=route,
+            )
         return final_output
 
     fallback = _fallback_from_observations(tool_observations)
@@ -387,6 +421,9 @@ def run_agentic_loop(instruction: str, user_id: str, is_proactive: bool = False)
             "instruction": instruction,
             "user_id": user_id,
             "is_proactive": is_proactive,
+            "model_tier": route.tier_label,
+            "model": route.primary_model,
+            "downgrade_reason": route.downgrade_reason,
             "tool_trace": tool_trace,
         },
         error="max_tool_loops_exceeded",

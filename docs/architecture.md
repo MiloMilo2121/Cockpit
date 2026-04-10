@@ -28,7 +28,11 @@ Tutti i servizi sono su rete Docker interna `backend`; verso Internet è esposto
 
 ## 3) Loop agentico ReAct
 
-- Primario: OpenRouter con `qwen/qwen3-next-80b-a3b-instruct:free` e fallback ai modelli gratuiti configurati in `OPENROUTER_FREE_MODELS`.
+- Primario: OpenRouter con router per difficolta:
+  - easy -> `OPENROUTER_EASY_MODELS` (`:free`, default `qwen/qwen3-next-80b-a3b-instruct:free`)
+  - medium -> `OPENROUTER_MEDIUM_MODELS` (default `qwen/qwen3.6-plus`, reasoning medium)
+  - hard -> `OPENROUTER_HARD_MODELS` (default `z-ai/glm-5.1`, reasoning high)
+- `OPENROUTER_ALLOW_PAID_MODELS=false` blocca i modelli paid e degrada medium/hard verso easy/free.
 - State machine in `agents.py`:
   - Reason: il modello decide se servono tool.
   - Act: il worker esegue tool locali deterministici e compatta i risultati.
@@ -39,6 +43,7 @@ Tutti i servizi sono su rete Docker interna `backend`; verso Internet è esposto
   - i task proattivi passano da reflection JSON prima dell'invio WhatsApp.
 - Ottimizzazione costi:
   - Redis cache su input identici per 5 minuti, dopo redazione PII e prima della chiamata OpenRouter.
+  - routing per priorita/difficolta, con easy sempre su free e paid tier dietro flag esplicito.
 - Tool obbligatori prima di ogni piano:
   - `get_calendar_context`
   - `search_qdrant_tasks`

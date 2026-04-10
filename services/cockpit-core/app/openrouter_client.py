@@ -33,16 +33,21 @@ class OpenRouterChatResponse:
         return bool(self.tool_calls)
 
 
-def _candidate_models(preferred_models: Iterable[str] | None = None) -> list[str]:
+def _candidate_models(
+    preferred_models: Iterable[str] | None = None,
+    *,
+    include_configured_fallbacks: bool = True,
+) -> list[str]:
     models: list[str] = []
     if preferred_models:
         models.extend([item.strip() for item in preferred_models if item and item.strip()])
-    models.extend(settings.openrouter_models)
+    if include_configured_fallbacks:
+        models.extend(settings.openrouter_models)
 
     deduped: list[str] = []
     seen: set[str] = set()
     for model in models:
-        if not model.endswith(":free"):
+        if not model.endswith(":free") and not settings.openrouter_allow_paid_models:
             continue
         if model in seen:
             continue
@@ -111,13 +116,18 @@ def chat_completion_message(
     tool_choice: str | dict[str, Any] | None = None,
     response_format: dict[str, Any] | None = None,
     parallel_tool_calls: bool | None = None,
+    reasoning: dict[str, Any] | None = None,
+    include_configured_fallbacks: bool = True,
 ) -> OpenRouterChatResponse:
     if not settings.openrouter_api_key:
         raise OpenRouterError("openrouter_api_key_not_set")
 
-    models = _candidate_models(preferred_models)
+    models = _candidate_models(
+        preferred_models,
+        include_configured_fallbacks=include_configured_fallbacks,
+    )
     if not models:
-        raise OpenRouterError("no_openrouter_free_models_configured")
+        raise OpenRouterError("no_openrouter_models_configured")
 
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
@@ -140,6 +150,8 @@ def chat_completion_message(
             body["response_format"] = response_format
         if parallel_tool_calls is not None:
             body["parallel_tool_calls"] = parallel_tool_calls
+        if reasoning is not None:
+            body["reasoning"] = reasoning
 
         try:
             response = httpx.post(
@@ -190,6 +202,8 @@ def chat_completion(
     tool_choice: str | dict[str, Any] | None = None,
     response_format: dict[str, Any] | None = None,
     parallel_tool_calls: bool | None = None,
+    reasoning: dict[str, Any] | None = None,
+    include_configured_fallbacks: bool = True,
 ) -> tuple[str, str]:
     response = chat_completion_message(
         messages=messages,
@@ -200,5 +214,7 @@ def chat_completion(
         tool_choice=tool_choice,
         response_format=response_format,
         parallel_tool_calls=parallel_tool_calls,
+        reasoning=reasoning,
+        include_configured_fallbacks=include_configured_fallbacks,
     )
     return response.content, response.model

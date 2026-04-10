@@ -19,7 +19,7 @@
 ## Step 3 (completato)
 
 - Router multi-agent sostituito da loop ReAct code-first in `agents.py`.
-- Qwen via OpenRouter free (`qwen/qwen3-next-80b-a3b-instruct:free`) orchestra tool locali e produce output BLUF.
+- OpenRouter usa un router per difficolta: easy su `qwen/qwen3-next-80b-a3b-instruct:free`, medium su `qwen/qwen3.6-plus` con reasoning medium, hard su `z-ai/glm-5.1` con reasoning high. I tier paid restano inattivi finche `OPENROUTER_ALLOW_PAID_MODELS=false`.
 - Tool matrix implementata:
   - `get_calendar_context`
   - `search_qdrant_tasks`
@@ -60,7 +60,7 @@
 
 - Servizio `file-watcher` aggiunto in `docker-compose.yml`.
 - Monitoraggio ricorsivo cartelle locali con `watchdog`.
-- Classificazione file con OpenRouter free (`OPENROUTER_FREE_MODELS`) e fallback euristico.
+- Classificazione file con OpenRouter free (`OPENROUTER_FREE_MODELS`) e fallback euristico; resta nel tier easy per contenere i costi.
 - Ingest automatico su RAG (`POST /rag/documents/ingest`) con metadati file e categoria.
 - Estrazione task dal contenuto e invio opzionale a `POST /webhooks/inbox`.
 - Persistenza stato dedup nel volume `file_watcher_state`.

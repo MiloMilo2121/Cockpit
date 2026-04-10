@@ -47,6 +47,10 @@ cp .env.example .env
 - `REDIS_PASSWORD`
 - `OPENROUTER_API_KEY` (obbligatoria per Step 3)
 - `OPENROUTER_FREE_MODELS` (lista modelli gratuiti OpenRouter, separati da virgola)
+- `OPENROUTER_EASY_MODELS` (tier easy, solo free)
+- `OPENROUTER_MEDIUM_MODELS` (tier medium; default Qwen 3.6 Plus)
+- `OPENROUTER_HARD_MODELS` (tier hard; default GLM 5.1)
+- `OPENROUTER_ALLOW_PAID_MODELS` (`false` finche non vuoi attivare i tier paid)
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_OAUTH_REDIRECT_URL` (es. `https://<DOMAIN_API>/google/callback`)
@@ -129,13 +133,17 @@ curl https://<DOMAIN_API>/jobs/<JOB_ID>
 
 ## Step 3 attivo (ReAct director + resilienza)
 
-- Loop agentico ReAct in `agents.py`, guidato da `qwen/qwen3-next-80b-a3b-instruct:free` via OpenRouter.
+- Loop agentico ReAct in `agents.py`, guidato da routing per difficolta via OpenRouter.
 - Tool locali deterministici:
   - `get_calendar_context`
   - `search_qdrant_tasks`
   - `query_raw_events`
 - Output operativo finale in formato BLUF dopo lettura calendario e task Qdrant.
-- Solo modelli OpenRouter gratuiti (`:free`) tramite `OPENROUTER_FREE_MODELS`.
+- Routing modelli:
+  - easy: `OPENROUTER_EASY_MODELS`, solo modelli `:free`
+  - medium: `OPENROUTER_MEDIUM_MODELS`, default `qwen/qwen3.6-plus` con reasoning medium
+  - hard: `OPENROUTER_HARD_MODELS`, default `z-ai/glm-5.1` con reasoning high
+- I modelli paid sono bloccati finche `OPENROUTER_ALLOW_PAID_MODELS=false`; in quel caso il router degrada ai modelli easy/free.
 - Circuit breaker su OpenRouter con variabili:
   - `CIRCUIT_BREAKER_FAILURE_THRESHOLD`
   - `CIRCUIT_BREAKER_OPEN_SECONDS`
@@ -147,7 +155,7 @@ curl https://<DOMAIN_API>/jobs/<JOB_ID>
   - cap a 4 tool loop consecutivi
   - reflection JSON obbligatoria prima dei messaggi WhatsApp proattivi
 - Check modello:
-  - `make check-model` verifica il catalogo OpenRouter e fallisce se il modello configurato non e' free o non supporta tool/JSON mode.
+  - `make check-model` verifica il catalogo OpenRouter, blocca easy non-free e controlla tool/JSON/reasoning sui tier medium/hard.
 - Celery Beat schedula:
   - `morning_briefing` alle 07:30
   - `midday_course_correction` alle 14:00

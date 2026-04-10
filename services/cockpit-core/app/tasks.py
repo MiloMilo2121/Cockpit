@@ -16,6 +16,7 @@ from app.db import list_dead_letter_events_since, list_google_accounts
 from app.evolution_client import send_whatsapp_text
 from app.google_sync import sync_google_account_pipeline
 from app.metrics import increment_metric
+from app.model_router import select_model_route
 from app.rag_pipeline import ingest_document_pipeline
 from app.redis_client import get_redis_client
 
@@ -74,18 +75,31 @@ def _degraded_local_response(message: str) -> str:
     )
 
 
-def _semantic_cache_key(*, source: str, user_id: str, input_digest: str) -> str:
-    digest = hashlib.md5(f"{source}|{user_id}|{input_digest}".encode("utf-8")).hexdigest()
+def _semantic_cache_key(*, source: str, user_id: str, input_digest: str, cache_context: str) -> str:
+    digest = hashlib.md5(f"{source}|{user_id}|{input_digest}|{cache_context}".encode("utf-8")).hexdigest()
     return f"cockpit:semantic_cache:{digest}"
 
 
-def _get_cached_agentic_result(*, source: str, user_id: str, input_digest: str) -> Dict[str, Any] | None:
+def _get_cached_agentic_result(
+    *,
+    source: str,
+    user_id: str,
+    input_digest: str,
+    cache_context: str,
+) -> Dict[str, Any] | None:
     if not settings.semantic_cache_enabled:
         return None
 
     try:
         client = get_redis_client()
-        raw = client.get(_semantic_cache_key(source=source, user_id=user_id, input_digest=input_digest))
+        raw = client.get(
+            _semantic_cache_key(
+                source=source,
+                user_id=user_id,
+                input_digest=input_digest,
+                cache_context=cache_context,
+            )
+        )
     except Exception:  # noqa: BLE001
         return None
     if not raw:
@@ -101,7 +115,14 @@ def _get_cached_agentic_result(*, source: str, user_id: str, input_digest: str) 
     return None
 
 
-def _set_cached_agentic_result(*, source: str, user_id: str, input_digest: str, result: Dict[str, str]) -> None:
+def _set_cached_agentic_result(
+    *,
+    source: str,
+    user_id: str,
+    input_digest: str,
+    cache_context: str,
+    result: Dict[str, str],
+) -> None:
     if not settings.semantic_cache_enabled:
         return
 
@@ -109,12 +130,18 @@ def _set_cached_agentic_result(*, source: str, user_id: str, input_digest: str, 
         "agent": result["agent"],
         "priority": result["priority"],
         "agentic_model": result["agentic_model"],
+        "model_tier": result.get("model_tier", ""),
         "output": result["output"],
     }
     try:
         client = get_redis_client()
         client.set(
-            _semantic_cache_key(source=source, user_id=user_id, input_digest=input_digest),
+            _semantic_cache_key(
+                source=source,
+                user_id=user_id,
+                input_digest=input_digest,
+                cache_context=cache_context,
+            ),
             json.dumps(payload, ensure_ascii=True),
             ex=max(int(settings.semantic_cache_ttl_seconds), 30),
         )
@@ -123,16 +150,45 @@ def _set_cached_agentic_result(*, source: str, user_id: str, input_digest: str, 
         return
 
 
-def _run_agentic_pipeline(message: str, *, user_id: str, is_proactive: bool = False) -> Dict[str, str]:
+def _event_priority(event: Dict[str, Any], *, default: str) -> str:
+    metadata = event.get("metadata")
+    candidates = [event.get("priority")]
+    if isinstance(metadata, dict):
+        candidates.append(metadata.get("priority"))
+        candidates.append(metadata.get("urgency"))
+
+    for value in candidates:
+        priority = str(value or "").strip().lower()
+        if priority in {"low", "medium", "high", "critical", "urgent", "urgente", "alta", "media", "bassa"}:
+            return priority
+    return default
+
+
+def _run_agentic_pipeline(
+    message: str,
+    *,
+    user_id: str,
+    is_proactive: bool = False,
+    priority: str | None = None,
+) -> Dict[str, str]:
+    selected_priority = priority or ("medium" if is_proactive else "low")
+    route = select_model_route(
+        instruction=message,
+        priority=selected_priority,
+        is_proactive=is_proactive,
+    )
     output = run_agentic_loop(
         instruction=message,
         user_id=user_id,
         is_proactive=is_proactive,
+        priority=selected_priority,
+        model_route=route,
     )
     return {
         "agent": "REACT_COCKPIT_DIRECTOR",
-        "priority": "high" if is_proactive else "medium",
-        "agentic_model": AGENTIC_MODEL,
+        "priority": selected_priority,
+        "agentic_model": route.primary_model or AGENTIC_MODEL,
+        "model_tier": route.tier_label,
         "output": output,
     }
 
@@ -154,8 +210,15 @@ def _execute_orchestration(event: Dict[str, Any]) -> Dict[str, Any]:
     user_id = str(event.get("user_id") or settings.proactive_default_user_id)
     source = str(event.get("source") or "unknown")
     input_digest = hashlib.md5(message.encode("utf-8")).hexdigest()
+    selected_priority = _event_priority(event, default="low")
+    cache_context = f"priority={selected_priority}|paid={str(settings.openrouter_allow_paid_models).lower()}"
 
-    cached_result = _get_cached_agentic_result(source=source, user_id=user_id, input_digest=input_digest)
+    cached_result = _get_cached_agentic_result(
+        source=source,
+        user_id=user_id,
+        input_digest=input_digest,
+        cache_context=cache_context,
+    )
     if cached_result:
         restored_output = _restore_text(request_id, str(cached_result["output"]))
         return {
@@ -164,6 +227,7 @@ def _execute_orchestration(event: Dict[str, Any]) -> Dict[str, Any]:
             "agent": str(cached_result.get("agent", "REACT_COCKPIT_DIRECTOR")),
             "priority": str(cached_result.get("priority", "medium")),
             "agentic_model": str(cached_result.get("agentic_model", AGENTIC_MODEL)),
+            "model_tier": str(cached_result.get("model_tier", "")),
             "user_id": event.get("user_id"),
             "source": event.get("source"),
             "result": restored_output,
@@ -199,7 +263,11 @@ def _execute_orchestration(event: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     try:
-        agentic_result = _run_agentic_pipeline(redacted_text, user_id=user_id)
+        agentic_result = _run_agentic_pipeline(
+            redacted_text,
+            user_id=user_id,
+            priority=selected_priority,
+        )
         restored_output = _restore_text(request_id, agentic_result["output"])
         record_success("openrouter")
         increment_metric("openrouter_success_total")
@@ -207,15 +275,17 @@ def _execute_orchestration(event: Dict[str, Any]) -> Dict[str, Any]:
             source=source,
             user_id=user_id,
             input_digest=input_digest,
+            cache_context=cache_context,
             result=agentic_result,
         )
 
         return {
             "status": "completed",
-            "route_used": "openrouter_free_react_loop",
+            "route_used": "openrouter_react_loop",
             "agent": agentic_result["agent"],
             "priority": agentic_result["priority"],
             "agentic_model": agentic_result["agentic_model"],
+            "model_tier": agentic_result["model_tier"],
             "user_id": event.get("user_id"),
             "source": event.get("source"),
             "result": restored_output,
@@ -330,6 +400,7 @@ def proactive_execution(
             redacted_instruction,
             user_id=target_user_id,
             is_proactive=True,
+            priority="medium",
         )
         restored_output = _restore_text(request_id, result["output"])
         record_success("openrouter")
@@ -365,10 +436,11 @@ def proactive_execution(
 
     return {
         "status": "completed",
-        "route_used": "openrouter_free_react_loop",
+        "route_used": "openrouter_react_loop",
         "agent": result["agent"],
         "priority": result["priority"],
         "agentic_model": result["agentic_model"],
+        "model_tier": result["model_tier"],
         "user_id": target_user_id,
         "source": "cron",
         "result": restored_output,
